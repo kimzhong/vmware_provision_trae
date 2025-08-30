@@ -1,0 +1,86 @@
+---
+################################################################################
+# VMware Disk Configuration Role
+#
+# This role handles disk configuration for the VM:
+# - Adds additional disks as needed
+# - Configures disk types and sizes
+# - Validates storage configuration
+# - Updates state tracking
+#
+# Supports multiple disk configurations and storage policies
+################################################################################
+
+############################################################################
+# Additional Disk Configuration
+# Adds and configures additional disks based on requirements
+############################################################################
+- name: Add additional disks
+  vmware_guest_disk:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+    disk:
+      - size_gb: "{{ item.size_gb }}"
+        type: "{{ item.type | default('thin') }}"
+        datastore: "{{ item.datastore | default(vm_datastore) }}"
+        scsi_controller: "{{ item.scsi_controller | default(0) }}"
+        unit_number: "{{ item.unit_number }}"
+        state: present
+    state: present
+  loop: "{{ additional_disks | default([]) }}"
+  register: disk_config
+  until: disk_config is success
+  retries: "{{ retry_max }}"
+  delay: "{{ retry_delay }}"
+
+############################################################################
+# Storage Validation
+# Verifies disk configuration and storage allocation
+############################################################################
+- name: Validate disk configuration
+  block:
+    - name: Get VM disk info
+      vmware_guest_disk_info:
+        hostname: "{{ vcenter.hostname }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: "{{ vcenter.validate_certs }}"
+        name: "{{ vm_name }}"
+      register: vm_disk_info
+
+    - name: Verify disk configuration
+      assert:
+        that:
+          - vm_disk_info.guest_disk_info is defined
+        fail_msg: "Disk configuration validation failed"
+        success_msg: "Disk configuration successful"
+
+############################################################################
+# State Update
+# Updates the state tracking with disk configuration details
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "disk_configured",
+        "steps_completed": {{ (lookup('file', state_file) | from_json).steps_completed + ['disk_config'] | to_json }},
+        "current_step": "inventory_update",
+        "disk_details": {{ vm_disk_info.guest_disk_info | to_json }}
+      }
+    dest: "{{ state_file }}"
+  when: disk_config is success
+
+############################################################################
+# AAP Integration
+# Updates AAP with disk configuration status
+############################################################################
+- name: Set disk configuration stats
+  set_stats:
+    data:
+      disk_config_status: "{{ disk_config }}"
+      disk_config_time: "{{ ansible_date_time.iso8601 }}"
+    aggregate: yes

@@ -1,0 +1,596 @@
+---
+# AAP State Manager - Default Configuration Variables
+# This file contains all default configuration variables for the AAP State Manager role
+# Handles AAP platform integration, state synchronization, and conflict resolution
+
+# Core Configuration
+aap_state_manager:
+  # Enable/disable AAP state management
+  enabled: true
+  
+  # Fail on critical AAP state errors
+  fail_on_critical_errors: true
+  
+  # Display summary information
+  display_state_summary: false
+  display_sync_summary: false
+  display_conflict_resolution_summary: false
+  display_ee_sync_summary: false
+  
+  # Operation timeout settings
+  operation_timeout: 300
+  api_timeout: 30
+  sync_timeout: 120
+  
+  # Concurrent operations
+  max_concurrent_syncs: 3
+  enable_parallel_processing: false
+
+# AAP API Configuration
+  aap_api:
+    # AAP Controller base URL (must be configured)
+    base_url: "{{ aap_controller_url | default('') }}"
+    
+    # Authentication header (must be configured)
+    auth_header: "{{ aap_auth_header | default('') }}"
+    
+    # API version
+    api_version: "v2"
+    
+    # Request timeout
+    timeout: 30
+    
+    # Retry configuration
+    max_retries: 3
+    retry_delay: 5
+    
+    # Rate limiting
+    requests_per_second: 10
+    burst_limit: 20
+
+# AAP Integration Settings
+  aap_integration:
+    # Enable AAP integration
+    enabled: true
+    
+    # Integration mode: 'full', 'read_only', 'write_only'
+    mode: "full"
+    
+    # Auto-register with AAP artifacts
+    auto_register_artifacts: true
+    
+    # Artifact retention policy
+    artifact_retention_days: 30
+    
+    # Integration health checks
+    health_check_enabled: true
+    health_check_interval: 300
+
+# State Synchronization Configuration
+  state_synchronization:
+    # Enable state synchronization
+    enabled: true
+    
+    # Synchronization mode: 'bidirectional', 'platform_to_local', 'local_to_platform'
+    mode: "bidirectional"
+    
+    # Sync frequency (seconds)
+    sync_interval: 60
+    
+    # Auto-sync on state changes
+    auto_sync_on_change: true
+    
+    # Sync batch size
+    batch_size: 10
+    
+    # Sync validation
+    validate_sync_results: true
+
+# Bidirectional Sync Settings
+  bidirectional_sync:
+    # Update local state with platform data
+    update_local: true
+    
+    # Update platform with local data
+    update_platform: false
+    
+    # Conflict resolution on bidirectional sync
+    resolve_conflicts: true
+    
+    # Sync priority: 'platform_first', 'local_first', 'timestamp_based'
+    sync_priority: "platform_first"
+
+# Job State Management
+  job_state_management:
+    # Enable job state tracking
+    enabled: true
+    
+    # Allow job updates
+    allow_updates: false
+    
+    # Track job progress
+    track_progress: true
+    
+    # Job status polling interval
+    polling_interval: 30
+    
+    # Job timeout monitoring
+    timeout_monitoring: true
+
+# Workflow State Management
+  workflow_state_management:
+    # Enable workflow state tracking
+    enabled: true
+    
+    # Allow workflow updates
+    allow_updates: false
+    
+    # Track workflow progress
+    track_progress: true
+    
+    # Workflow node tracking
+    track_workflow_nodes: true
+
+# Execution Environment Management
+  execution_environment:
+    # Enable EE synchronization
+    sync_enabled: true
+    
+    # Validate EE availability
+    validate_availability: true
+    
+    # Fetch detailed EE information
+    fetch_details: true
+    
+    # Check EE compatibility with operations
+    check_compatibility: true
+    
+    # Handle incompatible EEs
+    handle_incompatibility: true
+    
+    # Auto-switch to compatible EE
+    auto_switch_on_incompatibility: false
+    
+    # Allow job EE updates
+    allow_job_updates: false
+    
+    # Validate EE configuration
+    validate_configuration: true
+    
+    # Allow validation failures
+    allow_validation_failures: true
+    
+    # Strict validation mode
+    strict_validation: false
+    
+    # Operation requirements mapping
+    operation_requirements:
+      vm_provision: ["vmware", "python3"]
+      network_config: ["networking", "python3"]
+      storage_config: ["storage", "python3"]
+      backup_operation: ["backup", "python3"]
+    
+    # EE capabilities mapping
+    ee_capabilities:
+      default: ["python3", "ansible"]
+      vmware-ee: ["vmware", "python3", "ansible"]
+      network-ee: ["networking", "python3", "ansible"]
+      storage-ee: ["storage", "python3", "ansible"]
+      backup-ee: ["backup", "python3", "ansible"]
+
+# Inventory Synchronization
+  inventory_sync:
+    # Enable inventory synchronization
+    enabled: false
+    
+    # Sync inventory changes
+    sync_changes: false
+    
+    # Validate inventory consistency
+    validate_consistency: true
+    
+    # Auto-update inventory
+    auto_update: false
+
+# Conflict Detection and Resolution
+  conflict_detection:
+    # Enable conflict detection
+    enabled: true
+    
+    # Detection sensitivity: 'strict', 'normal', 'relaxed'
+    sensitivity: "normal"
+    
+    # Conflict types to detect
+    detect_types:
+      - "job_status_mismatch"
+      - "execution_environment_mismatch"
+      - "workflow_status_mismatch"
+      - "inventory_mismatch"
+      - "project_mismatch"
+    
+    # Conflict severity thresholds
+    severity_thresholds:
+      error: ["execution_environment_mismatch", "project_mismatch"]
+      warning: ["job_status_mismatch", "workflow_status_mismatch"]
+      info: ["inventory_mismatch"]
+
+  conflict_resolution:
+    # Enable conflict resolution
+    enabled: true
+    
+    # Resolution strategy: 'platform_wins', 'local_wins', 'manual_review', 'merge_strategy', 'timestamp_based'
+    strategy: "platform_wins"
+    
+    # Allow platform updates during resolution
+    allow_platform_updates: false
+    
+    # Allow partial resolution
+    allow_partial_resolution: true
+    
+    # Strict validation of resolution results
+    strict_validation: false
+    
+    # Manual review timeout (seconds)
+    manual_review_timeout: 3600
+    
+    # Local priority conflict types (for merge strategy)
+    local_priority_types:
+      - "job_status_mismatch"
+    
+    # Mergeable conflict types
+    mergeable_types:
+      - "job_status_mismatch"
+      - "workflow_status_mismatch"
+
+# State Management
+  state_management:
+    # Enable state persistence
+    persist_state: true
+    
+    # State file format: 'json', 'yaml'
+    state_format: "json"
+    
+    # State compression
+    compress_state: false
+    
+    # State validation
+    validate_state: true
+    
+    # State backup
+    backup_state: true
+    
+    # Max state history
+    max_state_history: 10
+
+# Session Management
+  session_management:
+    # Enable session tracking
+    enabled: true
+    
+    # Session timeout (seconds)
+    session_timeout: 3600
+    
+    # Auto-cleanup expired sessions
+    auto_cleanup: true
+    
+    # Session persistence
+    persist_sessions: true
+    
+    # Max concurrent sessions
+    max_concurrent_sessions: 10
+
+# File and Directory Management
+  output_directory: "/tmp/aap_state_manager"
+  state_directory: "{{ aap_state_manager.output_directory }}/state"
+  session_directory: "{{ aap_state_manager.output_directory }}/sessions"
+  artifacts_directory: "{{ aap_state_manager.output_directory }}/artifacts"
+  logs_directory: "{{ aap_state_manager.output_directory }}/logs"
+  
+  # File permissions
+  file_permissions: "0644"
+  directory_permissions: "0755"
+  
+  # File naming patterns
+  state_file_pattern: "aap_state_{{ aap_state_session_id }}.json"
+  session_file_pattern: "session_{{ aap_state_session_id }}.json"
+  artifact_file_pattern: "artifact_{{ aap_state_operation_id }}.json"
+
+# Data Retention and Cleanup
+  data_retention:
+    # Enable automatic cleanup
+    auto_cleanup: true
+    
+    # Retention period (days)
+    retention_days: 7
+    
+    # Cleanup interval (hours)
+    cleanup_interval: 24
+    
+    # Cleanup on session end
+    cleanup_on_session_end: false
+    
+    # Archive before cleanup
+    archive_before_cleanup: true
+    
+    # Archive format: 'tar.gz', 'zip'
+    archive_format: "tar.gz"
+
+# Performance Settings
+  performance:
+    # Enable caching
+    enable_caching: true
+    
+    # Cache TTL (seconds)
+    cache_ttl: 300
+    
+    # Cache size limit (MB)
+    cache_size_limit: 100
+    
+    # Enable compression
+    enable_compression: false
+    
+    # Compression level (1-9)
+    compression_level: 6
+    
+    # Memory optimization
+    optimize_memory: true
+    
+    # Batch processing
+    enable_batch_processing: true
+    batch_size: 50
+
+# Integration with Core Components
+  integration:
+    # Call Stack Manager integration
+    call_stack_manager:
+      enabled: true
+      register_operations: true
+      track_call_hierarchy: true
+    
+    # Retry Manager integration
+    retry_manager:
+      enabled: true
+      inherit_retry_context: true
+      propagate_retry_state: true
+    
+    # Output Manager integration
+    output_manager:
+      enabled: true
+      register_outputs: true
+      format_outputs: true
+    
+    # Idempotency Checker integration
+    idempotency_checker:
+      enabled: true
+      validate_idempotency: true
+      check_state_consistency: true
+
+# AAP Artifacts Management
+  aap_artifacts:
+    # Enable artifact creation
+    enabled: true
+    
+    # Artifact types to create
+    types:
+      - "state_snapshots"
+      - "sync_reports"
+      - "conflict_reports"
+      - "ee_reports"
+    
+    # Artifact metadata
+    include_metadata: true
+    
+    # Artifact compression
+    compress_artifacts: false
+    
+    # Auto-register with AAP
+    auto_register: true
+    
+    # Artifact retention
+    retention_policy: "session_based"
+
+# External System Integration
+  external_systems:
+    # Monitoring integration
+    monitoring:
+      enabled: false
+      endpoint: ""
+      metrics_format: "prometheus"
+      send_interval: 60
+    
+    # Alerting integration
+    alerting:
+      enabled: false
+      webhook_url: ""
+      alert_levels: ["error", "critical"]
+      include_context: true
+    
+    # Logging integration
+    logging:
+      enabled: false
+      log_level: "INFO"
+      log_format: "json"
+      external_logger: ""
+
+# Security Settings
+  security:
+    # Disable logging of sensitive API calls
+    no_log_api_calls: true
+    
+    # Encrypt state files
+    encrypt_state_files: false
+    
+    # Encryption key (if encryption enabled)
+    encryption_key: ""
+    
+    # Secure file permissions
+    secure_file_permissions: true
+    
+    # Validate SSL certificates
+    validate_ssl_certs: true
+    
+    # API authentication validation
+    validate_api_auth: true
+
+# Monitoring and Alerting
+  monitoring:
+    # Enable monitoring
+    enabled: false
+    
+    # Metrics collection
+    collect_metrics: true
+    
+    # Performance monitoring
+    monitor_performance: true
+    
+    # Health checks
+    health_checks: true
+    
+    # Alert thresholds
+    alert_thresholds:
+      sync_failure_rate: 10  # percentage
+      conflict_rate: 5       # percentage
+      api_error_rate: 15     # percentage
+      response_time: 30      # seconds
+
+  alerting:
+    # Enable alerting
+    enabled: false
+    
+    # Alert channels
+    channels: []
+    
+    # Alert severity levels
+    severity_levels: ["critical", "error", "warning"]
+    
+    # Alert suppression
+    suppress_duplicates: true
+    suppression_window: 300  # seconds
+
+# Validation Settings
+  validation:
+    # Enable strict consistency validation
+    strict_consistency: false
+    
+    # Validate API responses
+    validate_api_responses: true
+    
+    # Validate state transitions
+    validate_state_transitions: true
+    
+    # Schema validation
+    enable_schema_validation: true
+    
+    # Custom validation rules
+    custom_validation_rules: []
+
+# Advanced Features
+  advanced:
+    # Circuit breaker pattern
+    circuit_breaker:
+      enabled: false
+      failure_threshold: 5
+      recovery_timeout: 60
+      half_open_max_calls: 3
+    
+    # Bulkhead pattern
+    bulkhead:
+      enabled: false
+      max_concurrent_calls: 10
+      max_wait_duration: 30
+    
+    # Adaptive synchronization
+    adaptive_sync:
+      enabled: false
+      adjust_interval: true
+      min_interval: 30
+      max_interval: 300
+    
+    # Custom state handlers
+    custom_handlers:
+      enabled: false
+      handler_directory: ""
+      auto_load_handlers: false
+
+# Integration Context Variables (populated by other components)
+aap_integration_context:
+  # AAP job information
+  aap_job_id: "{{ tower_job_id | default('') }}"
+  aap_workflow_id: "{{ tower_workflow_job_id | default('') }}"
+  aap_execution_environment: "{{ tower_job_execution_environment | default('default') }}"
+  aap_organization: "{{ tower_organization | default('') }}"
+  aap_project: "{{ tower_project | default('') }}"
+  aap_inventory: "{{ tower_inventory | default('') }}"
+  
+  # Integration with other core components
+  call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+  retry_session_id: "{{ retry_session_id | default('') }}"
+  output_session_id: "{{ output_session_id | default('') }}"
+  idempotency_session_id: "{{ idempotency_session_id | default('') }}"
+  
+  # Operation context
+  operation_type: "{{ current_operation_type | default('unknown') }}"
+  operation_phase: "{{ current_operation_phase | default('execution') }}"
+  operation_target: "{{ current_operation_target | default('') }}"
+
+# State Sync Context (populated during operations)
+aap_state_sync_context:
+  operation: "{{ aap_state_sync_operation | default('general_sync') }}"
+  expected_status: "{{ expected_aap_status | default('') }}"
+  sync_direction: "{{ aap_sync_direction | default('bidirectional') }}"
+  priority: "{{ aap_sync_priority | default('normal') }}"
+  
+# Session Variables (auto-generated)
+aap_state_session_id: "{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}_{{ 999999 | random }}"
+aap_state_operation_id: "{{ aap_state_sync_operation | default('sync') }}_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}"
+
+# Output Data Structure
+aap_state_output_structure:
+  session_info:
+    session_id: "{{ aap_state_session_id }}"
+    operation_id: "{{ aap_state_operation_id }}"
+    start_time: ""
+    end_time: ""
+    execution_time: 0
+    status: "pending"
+  
+  platform_info:
+    version: ""
+    controller_version: ""
+    license_info: {}
+    connection_status: "unknown"
+  
+  sync_summary:
+    operations_performed: []
+    conflicts_detected: 0
+    conflicts_resolved: 0
+    state_updates: 0
+    errors: []
+  
+  integration_status:
+    call_stack_integration: false
+    retry_integration: false
+    output_integration: false
+    idempotency_integration: false
+  
+  artifacts:
+    state_files: []
+    reports: []
+    logs: []
+
+# Compatibility Settings
+compatibility:
+  # AAP version compatibility
+  aap_versions: ["4.0", "4.1", "4.2", "4.3", "4.4"]
+  
+  # Ansible version compatibility
+  ansible_versions: ["2.12", "2.13", "2.14", "2.15", "2.16"]
+  
+  # Python version compatibility
+  python_versions: ["3.8", "3.9", "3.10", "3.11"]
+  
+  # Backward compatibility mode
+  backward_compatibility: true
+  
+  # Legacy API support
+  legacy_api_support: false

@@ -1,0 +1,77 @@
+---
+################################################################################
+# VMware VM Provisioning Role
+#
+# This role handles the core VM provisioning process:
+# - Creates VM from template
+# - Configures hardware specifications
+# - Applies OS customization
+# - Updates deployment state
+#
+# The role includes retry logic for resilience
+################################################################################
+
+############################################################################
+# VM Creation
+# Creates a new VM from the specified template with defined specifications
+############################################################################
+- name: Create VM from template
+  vmware_guest:
+    # vCenter connection details
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    
+    # VM specifications
+    name: "{{ vm_name }}"
+    template: "{{ templates[vm_os].template_name }}"
+    datacenter: "{{ datacenter }}"
+    folder: "{{ vm_folder }}"
+    state: present
+    guest_id: "{{ templates[vm_os].guest_id }}"
+    
+    # Hardware configuration
+    hardware:
+      memory_mb: "{{ vm_memory | default(vm_defaults.memory_mb) }}"
+      num_cpus: "{{ vm_cpu | default(vm_defaults.cpu) }}"
+      scsi: paravirtual
+    
+    # OS customization
+    customization: "{{ templates[vm_os].customization }}"
+    wait_for_ip_address: yes  # Ensures VM is accessible
+  register: vm_creation
+  until: vm_creation is success
+  retries: "{{ retry_max }}"
+  delay: "{{ retry_delay }}"
+
+############################################################################
+# State Tracking Update
+# Updates the state file with current deployment progress
+############################################################################
+- name: Update state tracking
+  copy:
+    content: "{{ lookup('file', state_file) | from_json | combine({
+      'state': 'vm_created',
+      'steps_completed': lookup('file', state_file) | from_json | json_query('steps_completed') + ['vm_provision'],
+      'current_step': 'network_config',
+      'vm_details': {
+        'power_state': vm_creation.instance.hw_power_status,
+        'ip_address': vm_creation.instance.ipv4 | default(''),
+        'cpu': vm_creation.instance.hw_processor_count,
+        'memory': vm_creation.instance.hw_memory_mb
+      }
+    }) | to_json }}"
+    dest: "{{ state_file }}"
+  when: vm_creation is success
+
+############################################################################
+# AAP Integration
+# Sets statistics for Ansible Automation Platform tracking
+############################################################################
+- name: Set stats for AAP
+  set_stats:
+    data:
+      vm_creation_status: "{{ vm_creation }}"
+      vm_deployment_time: "{{ ansible_date_time.iso8601 }}"
+    aggregate: yes

@@ -1,0 +1,362 @@
+---
+# Idempotency Checker Role - Main Tasks
+# This role provides comprehensive idempotency checking for VMware VM provisioning operations
+# It ensures operations are safe to retry and maintains state consistency across executions
+
+# Initialize idempotency checking session
+- name: Initialize idempotency checking session
+  set_fact:
+    idempotency_session_id: "{{ idempotency_session_id_prefix }}_{{ ansible_date_time.epoch }}_{{ 999999 | random }}"
+    idempotency_session_start: "{{ ansible_date_time.iso8601 }}"
+    idempotency_session_status: "initializing"
+    idempotency_checks_performed: []
+    idempotency_session_statistics:
+      total_checks: 0
+      passed_checks: 0
+      failed_checks: 0
+      skipped_checks: 0
+      cached_results: 0
+      execution_time: 0
+      check_types: {}
+  tags:
+    - idempotency
+    - initialization
+
+# Validate idempotency checker configuration
+- name: Validate idempotency checker configuration
+  assert:
+    that:
+      - idempotency_current_operation is defined
+      - idempotency_current_operation | length > 0
+      - idempotency_component_context is defined
+      - idempotency_checker.enabled | default(true) | bool
+    fail_msg: "Idempotency checker configuration validation failed"
+    success_msg: "Idempotency checker configuration validated successfully"
+  tags:
+    - idempotency
+    - validation
+
+# Generate unique operation identifier for idempotency tracking
+- name: Generate idempotency operation identifier
+  set_fact:
+    idempotency_operation_id: "{{ idempotency_current_operation }}_{{ ansible_date_time.epoch }}_{{ 999999 | random }}"
+    idempotency_operation_start: "{{ ansible_date_time.iso8601 }}"
+  tags:
+    - idempotency
+    - identification
+
+# Initialize idempotency operation data structure
+- name: Initialize idempotency operation data structure
+  set_fact:
+    idempotency_operation_data:
+      operation_id: "{{ idempotency_operation_id }}"
+      operation_name: "{{ idempotency_current_operation }}"
+      session_id: "{{ idempotency_session_id }}"
+      start_time: "{{ idempotency_operation_start }}"
+      end_time: null
+      status: "checking"
+      component_context: "{{ idempotency_component_context }}"
+      checks_performed: []
+      idempotency_status: "unknown"
+      safe_to_execute: false
+      safe_to_retry: false
+      state_changes_detected: false
+      resource_conflicts: []
+      dependencies_satisfied: true
+      execution_time: 0
+      check_summary:
+        total_checks: 0
+        passed_checks: 0
+        failed_checks: 0
+        warning_checks: 0
+        critical_checks: 0
+  tags:
+    - idempotency
+    - data_structure
+
+# Create idempotency output directory
+- name: Create idempotency output directory
+  file:
+    path: "{{ idempotency_checker.output_directory }}"
+    state: directory
+    mode: '0755'
+  when: idempotency_checker.file_output_enabled | default(true) | bool
+  tags:
+    - idempotency
+    - filesystem
+
+# Perform pre-execution idempotency checks
+- name: Perform pre-execution idempotency checks
+  include_tasks: perform_idempotency_checks.yml
+  vars:
+    check_phase: "pre_execution"
+  tags:
+    - idempotency
+    - pre_execution
+
+# Check for existing resource state
+- name: Check for existing resource state
+  include_tasks: check_resource_state.yml
+  when: idempotency_checker.resource_state_checking | default(true) | bool
+  tags:
+    - idempotency
+    - resource_state
+
+# Validate operation dependencies
+- name: Validate operation dependencies
+  include_tasks: validate_dependencies.yml
+  when: idempotency_checker.dependency_validation | default(true) | bool
+  tags:
+    - idempotency
+    - dependencies
+
+# Check for resource conflicts
+- name: Check for resource conflicts
+  include_tasks: check_resource_conflicts.yml
+  when: idempotency_checker.conflict_detection | default(true) | bool
+  tags:
+    - idempotency
+    - conflicts
+
+# Determine operation safety and idempotency status
+- name: Determine operation safety and idempotency status
+  set_fact:
+    idempotency_operation_data: "{{ idempotency_operation_data | combine({
+      'idempotency_status': idempotency_final_status,
+      'safe_to_execute': idempotency_safe_to_execute,
+      'safe_to_retry': idempotency_safe_to_retry,
+      'state_changes_detected': idempotency_state_changes_detected,
+      'dependencies_satisfied': idempotency_dependencies_satisfied
+    }) }}"
+  vars:
+    idempotency_final_status: >
+      {%- if idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'failed') | list | length > 0 -%}
+        failed
+      {%- elif idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'warning') | list | length > 0 -%}
+        warning
+      {%- elif idempotency_operation_data.checks_performed | selectattr('check_type', 'equalto', 'resource_exists') | selectattr('result', 'equalto', true) | list | length > 0 -%}
+        idempotent
+      {%- else -%}
+        safe
+      {%- endif %}
+    idempotency_safe_to_execute: >
+      {{ idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'failed') | list | length == 0 and
+         idempotency_operation_data.dependencies_satisfied | default(true) | bool }}
+    idempotency_safe_to_retry: >
+      {{ idempotency_operation_data.checks_performed | selectattr('check_type', 'equalto', 'retry_safety') | selectattr('result', 'equalto', true) | list | length > 0 or
+         (idempotency_operation_data.checks_performed | selectattr('check_type', 'equalto', 'retry_safety') | list | length == 0 and
+          idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'failed') | list | length == 0) }}
+    idempotency_state_changes_detected: >
+      {{ idempotency_operation_data.checks_performed | selectattr('check_type', 'equalto', 'state_change') | selectattr('result', 'equalto', true) | list | length > 0 }}
+    idempotency_dependencies_satisfied: >
+      {{ idempotency_operation_data.checks_performed | selectattr('check_type', 'equalto', 'dependency') | selectattr('status', 'equalto', 'failed') | list | length == 0 }}
+  tags:
+    - idempotency
+    - evaluation
+
+# Calculate idempotency check statistics
+- name: Calculate idempotency check statistics
+  set_fact:
+    idempotency_operation_end: "{{ ansible_date_time.iso8601 }}"
+    idempotency_execution_time: "{{ (ansible_date_time.epoch | int) - (idempotency_operation_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+  tags:
+    - idempotency
+    - statistics
+
+# Update operation data with final statistics
+- name: Update operation data with final statistics
+  set_fact:
+    idempotency_operation_data: "{{ idempotency_operation_data | combine({
+      'end_time': idempotency_operation_end,
+      'execution_time': idempotency_execution_time | int,
+      'status': 'completed',
+      'check_summary': {
+        'total_checks': idempotency_operation_data.checks_performed | length,
+        'passed_checks': idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'passed') | list | length,
+        'failed_checks': idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'failed') | list | length,
+        'warning_checks': idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'warning') | list | length,
+        'critical_checks': idempotency_operation_data.checks_performed | selectattr('severity', 'equalto', 'critical') | list | length
+      }
+    }) }}"
+  tags:
+    - idempotency
+    - finalization
+
+# Add operation to session checks list
+- name: Add operation to session checks list
+  set_fact:
+    idempotency_checks_performed: "{{ idempotency_checks_performed + [idempotency_operation_data] }}"
+  tags:
+    - idempotency
+    - session_tracking
+
+# Update session statistics
+- name: Update session statistics
+  set_fact:
+    idempotency_session_statistics: "{{ idempotency_session_statistics | combine({
+      'total_checks': idempotency_session_statistics.total_checks + idempotency_operation_data.check_summary.total_checks,
+      'passed_checks': idempotency_session_statistics.passed_checks + idempotency_operation_data.check_summary.passed_checks,
+      'failed_checks': idempotency_session_statistics.failed_checks + idempotency_operation_data.check_summary.failed_checks,
+      'execution_time': idempotency_session_statistics.execution_time + (idempotency_operation_data.execution_time | int),
+      'check_types': idempotency_session_statistics.check_types | combine({
+        idempotency_current_operation: (idempotency_session_statistics.check_types[idempotency_current_operation] | default(0)) + 1
+      })
+    }) }}"
+  tags:
+    - idempotency
+    - session_statistics
+
+# Write idempotency session data to file
+- name: Write idempotency session data to file
+  copy:
+    content: |
+      {
+        "session_id": "{{ idempotency_session_id }}",
+        "session_start": "{{ idempotency_session_start }}",
+        "session_end": "{{ ansible_date_time.iso8601 }}",
+        "session_status": "active",
+        "current_operation": "{{ idempotency_current_operation }}",
+        "operation_data": {{ idempotency_operation_data | to_nice_json }},
+        "session_statistics": {{ idempotency_session_statistics | to_nice_json }},
+        "checks_performed": {{ idempotency_checks_performed | to_nice_json }},
+        "ansible_metadata": {
+          "ansible_version": "{{ ansible_version.full }}",
+          "controller_host": "{{ ansible_controller | default('localhost') }}",
+          "execution_user": "{{ ansible_user_id }}",
+          "execution_environment": "{{ ansible_env.ANSIBLE_EXECUTION_ENVIRONMENT | default('default') }}"
+        },
+        "integration_context": {
+          "call_stack_session_id": "{{ call_stack_session_id | default('') }}",
+          "retry_session_id": "{{ retry_session_id | default('') }}",
+          "output_session_id": "{{ output_session_id | default('') }}",
+          "aap_job_id": "{{ tower_job_id | default(awx_job_id) | default('') }}",
+          "aap_workflow_id": "{{ tower_workflow_job_id | default(awx_workflow_job_id) | default('') }}"
+        }
+      }
+    dest: "{{ idempotency_checker.output_directory }}/idempotency_session_{{ idempotency_session_id }}.json"
+    mode: '0644'
+  when: idempotency_checker.file_output_enabled | default(true) | bool
+  tags:
+    - idempotency
+    - file_output
+
+# Register idempotency session data as AAP artifact
+- name: Register idempotency session data as AAP artifact
+  set_stats:
+    data:
+      idempotency_session_id: "{{ idempotency_session_id }}"
+      idempotency_current_operation: "{{ idempotency_current_operation }}"
+      idempotency_operation_id: "{{ idempotency_operation_id }}"
+      idempotency_operation_status: "{{ idempotency_operation_data.status }}"
+      idempotency_status: "{{ idempotency_operation_data.idempotency_status }}"
+      idempotency_safe_to_execute: "{{ idempotency_operation_data.safe_to_execute }}"
+      idempotency_safe_to_retry: "{{ idempotency_operation_data.safe_to_retry }}"
+      idempotency_execution_time: "{{ idempotency_operation_data.execution_time }}"
+      idempotency_check_summary: "{{ idempotency_operation_data.check_summary }}"
+      idempotency_session_statistics: "{{ idempotency_session_statistics }}"
+      idempotency_timestamp: "{{ ansible_date_time.iso8601 }}"
+    per_host: false
+  when: idempotency_checker.aap_integration | default(true) | bool
+  tags:
+    - idempotency
+    - aap_integration
+
+# Send idempotency metrics to external monitoring systems
+- name: Send idempotency metrics to external monitoring systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default(omit) }}"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ idempotency_session_id }}"
+      operation: "{{ idempotency_current_operation }}"
+      idempotency_status: "{{ idempotency_operation_data.idempotency_status }}"
+      safe_to_execute: "{{ idempotency_operation_data.safe_to_execute }}"
+      safe_to_retry: "{{ idempotency_operation_data.safe_to_retry }}"
+      execution_time: "{{ idempotency_operation_data.execution_time }}"
+      check_summary: "{{ idempotency_operation_data.check_summary }}"
+      environment: "{{ idempotency_component_context.environment | default('production') }}"
+      component: "idempotency_checker"
+    timeout: "{{ item.timeout | default(30) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ idempotency_checker.external_systems | default([]) }}"
+  when:
+    - idempotency_checker.external_integration | default(false) | bool
+    - item.enabled | default(true) | bool
+  ignore_errors: true
+  no_log: "{{ idempotency_checker.security.no_log_external | default(true) | bool }}"
+  tags:
+    - idempotency
+    - external_integration
+
+# Update idempotency session status to completed
+- name: Update idempotency session status to completed
+  set_fact:
+    idempotency_session_status: "completed"
+    idempotency_session_end: "{{ ansible_date_time.iso8601 }}"
+  tags:
+    - idempotency
+    - completion
+
+# Display idempotency check summary
+- name: Display idempotency check summary
+  debug:
+    msg:
+      - "Idempotency Check Summary:"
+      - "  Session ID: {{ idempotency_session_id }}"
+      - "  Operation: {{ idempotency_current_operation }}"
+      - "  Status: {{ idempotency_operation_data.idempotency_status }}"
+      - "  Safe to Execute: {{ idempotency_operation_data.safe_to_execute }}"
+      - "  Safe to Retry: {{ idempotency_operation_data.safe_to_retry }}"
+      - "  Checks Performed: {{ idempotency_operation_data.check_summary.total_checks }}"
+      - "  Passed: {{ idempotency_operation_data.check_summary.passed_checks }}"
+      - "  Failed: {{ idempotency_operation_data.check_summary.failed_checks }}"
+      - "  Warnings: {{ idempotency_operation_data.check_summary.warning_checks }}"
+      - "  Execution Time: {{ idempotency_operation_data.execution_time }}s"
+  when: idempotency_checker.display_summary | default(true) | bool
+  tags:
+    - idempotency
+    - summary
+
+# Trigger idempotency completion handlers
+- name: Trigger idempotency completion handlers
+  debug:
+    msg: "Idempotency checking completed successfully"
+  notify:
+    - finalize idempotency session
+  changed_when: true
+  tags:
+    - idempotency
+    - handlers
+
+# Fail if operation is not safe to execute
+- name: Fail if operation is not safe to execute
+  fail:
+    msg: |
+      Operation '{{ idempotency_current_operation }}' failed idempotency checks and is not safe to execute.
+      
+      Idempotency Status: {{ idempotency_operation_data.idempotency_status }}
+      Safe to Execute: {{ idempotency_operation_data.safe_to_execute }}
+      Safe to Retry: {{ idempotency_operation_data.safe_to_retry }}
+      
+      Failed Checks:
+      {% for check in idempotency_operation_data.checks_performed | selectattr('status', 'equalto', 'failed') %}
+      - {{ check.check_type }}: {{ check.message }}
+      {% endfor %}
+      
+      Resource Conflicts:
+      {% for conflict in idempotency_operation_data.resource_conflicts %}
+      - {{ conflict.resource_type }}: {{ conflict.conflict_reason }}
+      {% endfor %}
+  when:
+    - not idempotency_operation_data.safe_to_execute | bool
+    - idempotency_checker.fail_on_unsafe | default(true) | bool
+  notify:
+    - cleanup idempotency session on error
+  tags:
+    - idempotency
+    - safety_check

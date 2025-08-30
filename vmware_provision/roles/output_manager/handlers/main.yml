@@ -1,0 +1,306 @@
+---
+################################################################################
+# Output Manager Role - Handlers
+#
+# This file contains handlers for the output manager role.
+# Handlers provide finalization, cleanup, error handling, and
+# integration capabilities for output management operations.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+- name: "finalize output session"
+  block:
+    - name: "Update output data with finalization status"
+      set_fact:
+        output_data: "{{ output_data | combine({
+          'status': 'finalized',
+          'finalization_time': ansible_date_time.iso8601,
+          'session_duration': (ansible_date_time.epoch | int) - (output_data.timestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'final_output_count': output_data.outputs | length
+        }) }}"
+      when: output_data is defined
+    
+    - name: "Generate final consolidated output"
+      copy:
+        content: "{{ output_data | to_nice_json }}"
+        dest: "{{ output_manager.formats.json.output_dir | default('/tmp/ansible_outputs') }}/{{ output_session_id }}_final_consolidated.json"
+        mode: '0644'
+      when: 
+        - output_data is defined
+        - output_manager.file_output | default(true)
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Register final output session to AAP artifacts"
+      set_stats:
+        data:
+          output_final_status: "{{ output_data.status }}"
+          output_session_duration: "{{ output_data.session_duration | default(0) }}"
+          output_final_count: "{{ output_data.final_output_count | default(0) }}"
+          output_finalization_time: "{{ ansible_date_time.iso8601 }}"
+          output_total_size_final: "{{ output_data.outputs | map(attribute='size_bytes') | list | sum | default(0) }}"
+        per_host: false
+        aggregate: true
+      when: 
+        - output_data is defined
+        - output_manager.artifacts_integration | default(true)
+    
+    - name: "Log output session completion"
+      lineinfile:
+        path: "{{ output_manager.error_handling.error_log_file | default('/tmp/output_manager_errors.log') | dirname }}/output_manager_sessions.log"
+        line: "{{ ansible_date_time.iso8601 }} - Session {{ output_session_id | default('unknown') }} finalized - Duration: {{ output_data.session_duration | default(0) }}s - Outputs: {{ output_data.final_output_count | default(0) }}"
+        create: yes
+        mode: '0644'
+      delegate_to: localhost
+      run_once: true
+  
+  tags:
+    - output_manager
+    - finalize
+
+- name: "cleanup output on error"
+  block:
+    - name: "Update output data with error status"
+      set_fact:
+        output_data: "{{ output_data | combine({
+          'status': 'error',
+          'error_time': ansible_date_time.iso8601,
+          'error_component': output_current_component | default('unknown'),
+          'error_session_id': output_session_id | default('unknown')
+        }) }}"
+      when: output_data is defined
+    
+    - name: "Log error to output manager error file"
+      lineinfile:
+        path: "{{ output_manager.error_handling.error_log_file | default('/tmp/output_manager_errors.log') }}"
+        line: "{{ ansible_date_time.iso8601 }} - ERROR - Session: {{ output_session_id | default('unknown') }} - Component: {{ output_current_component | default('unknown') }} - Output processing failed"
+        create: yes
+        mode: '0644'
+      when: 
+        - output_manager.error_handling.log_errors | default(true)
+        - output_data is defined
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Write error output to file"
+      copy:
+        content: "{{ output_data | to_nice_json }}"
+        dest: "{{ output_manager.formats.json.output_dir | default('/tmp/ansible_outputs') }}/{{ output_session_id }}_error.json"
+        mode: '0644'
+      when: 
+        - output_data is defined
+        - output_manager.file_output | default(true)
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Register error output to AAP artifacts"
+      set_stats:
+        data:
+          output_error_status: "{{ output_data.status }}"
+          output_error_component: "{{ output_data.error_component | default('unknown') }}"
+          output_error_session_id: "{{ output_data.error_session_id | default('unknown') }}"
+          output_error_time: "{{ ansible_date_time.iso8601 }}"
+        per_host: false
+        aggregate: true
+      when: 
+        - output_data is defined
+        - output_manager.artifacts_integration | default(true)
+  
+  tags:
+    - output_manager
+    - error
+    - cleanup
+
+- name: "compress output files"
+  block:
+    - name: "Find large output files for compression"
+      find:
+        paths: "{{ output_manager.formats.json.output_dir | default('/tmp/ansible_outputs') }}"
+        patterns: "{{ output_session_id }}*.json"
+        size: "{{ output_manager.performance.compression_threshold | default(1048576) }}"
+      register: large_output_files
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Compress large output files"
+      archive:
+        path: "{{ item.path }}"
+        dest: "{{ item.path }}.gz"
+        format: gz
+        remove: true
+      loop: "{{ large_output_files.files }}"
+      when: 
+        - output_manager.performance.enable_compression | default(false)
+        - large_output_files.files is defined
+        - large_output_files.files | length > 0
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Log compression activity"
+      debug:
+        msg: "Compressed {{ large_output_files.files | length }} large output files for session {{ output_session_id }}"
+      when: 
+        - large_output_files.files is defined
+        - large_output_files.files | length > 0
+  
+  tags:
+    - output_manager
+    - compression
+    - performance
+
+- name: "cleanup old output files"
+  block:
+    - name: "Find old output files"
+      find:
+        paths: "{{ item }}"
+        patterns: "*.json,*.yml,*.xml,*.csv"
+        age: "{{ output_manager.retention.days | default(30) }}d"
+      register: old_output_files
+      loop:
+        - "{{ output_manager.formats.json.output_dir | default('/tmp/ansible_outputs') }}"
+        - "{{ output_manager.formats.yaml.output_dir | default('/tmp/ansible_outputs') }}"
+        - "{{ output_manager.formats.xml.output_dir | default('/tmp/ansible_outputs') }}"
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Remove old output files"
+      file:
+        path: "{{ item.1.path }}"
+        state: absent
+      loop: "{{ old_output_files.results | subelements('files', skip_missing=True) }}"
+      when: 
+        - output_manager.retention.auto_cleanup | default(true)
+        - old_output_files.results is defined
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Count total files cleaned up"
+      set_fact:
+        total_cleaned_files: "{{ old_output_files.results | map(attribute='files') | flatten | length }}"
+      when: old_output_files.results is defined
+    
+    - name: "Log cleanup activity"
+      debug:
+        msg: "Cleaned up {{ total_cleaned_files | default(0) }} old output files"
+      when: total_cleaned_files is defined and (total_cleaned_files | int) > 0
+  
+  tags:
+    - output_manager
+    - cleanup
+    - maintenance
+
+- name: "archive output session"
+  block:
+    - name: "Create archive directory"
+      file:
+        path: "{{ output_manager.archiving.archive_dir | default('/var/lib/ansible/archives') }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Find session output files"
+      find:
+        paths: "{{ item }}"
+        patterns: "{{ output_session_id }}*"
+      register: session_output_files
+      loop:
+        - "{{ output_manager.formats.json.output_dir | default('/tmp/ansible_outputs') }}"
+        - "{{ output_manager.formats.yaml.output_dir | default('/tmp/ansible_outputs') }}"
+        - "{{ output_manager.formats.xml.output_dir | default('/tmp/ansible_outputs') }}"
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Create session archive"
+      archive:
+        path: "{{ session_output_files.results | map(attribute='files') | flatten | map(attribute='path') | list }}"
+        dest: "{{ output_manager.archiving.archive_dir | default('/var/lib/ansible/archives') }}/{{ output_session_id }}_{{ ansible_date_time.date }}.{{ output_manager.archiving.format | default('tar.gz') }}"
+        format: "{{ 'gz' if output_manager.archiving.format | default('tar.gz') == 'tar.gz' else output_manager.archiving.format | default('tar') }}"
+        remove: false
+      when: 
+        - output_manager.archiving.enabled | default(false)
+        - session_output_files.results | map(attribute='files') | flatten | length > 0
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Log archiving activity"
+      debug:
+        msg: "Archived {{ session_output_files.results | map(attribute='files') | flatten | length }} files for session {{ output_session_id }}"
+      when: 
+        - output_manager.archiving.enabled | default(false)
+        - session_output_files.results is defined
+  
+  tags:
+    - output_manager
+    - archive
+    - maintenance
+
+- name: "send output to external systems"
+  block:
+    - name: "Retry failed external system integrations"
+      uri:
+        url: "{{ item.url }}"
+        method: "{{ item.method | default('POST') }}"
+        body: "{{ output_data | to_json }}"
+        body_format: json
+        headers:
+          Content-Type: "application/json"
+          Authorization: "{{ item.auth_header | default('') }}"
+        status_code: [200, 201, 202]
+        timeout: "{{ item.timeout | default(30) }}"
+      loop: "{{ output_manager.external_systems | default([]) }}"
+      when: 
+        - output_manager.external_integration | default(false)
+        - item.enabled | default(true)
+        - output_data is defined
+      retries: "{{ output_manager.error_handling.max_retry_attempts | default(3) }}"
+      delay: "{{ output_manager.error_handling.retry_delay | default(5) }}"
+      ignore_errors: true
+    
+    - name: "Log external system integration results"
+      debug:
+        msg: "Completed external system integration for {{ output_manager.external_systems | length }} systems"
+      when: 
+        - output_manager.external_integration | default(false)
+        - output_manager.external_systems | default([]) | length > 0
+  
+  tags:
+    - output_manager
+    - external_integration
+    - retry
+
+- name: "update output metrics"
+  block:
+    - name: "Calculate session metrics"
+      set_fact:
+        session_metrics:
+          session_id: "{{ output_session_id }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          output_count: "{{ output_data.outputs | length | default(0) }}"
+          total_size_bytes: "{{ output_data.outputs | map(attribute='size_bytes') | list | sum | default(0) }}"
+          session_duration: "{{ output_data.session_duration | default(0) }}"
+          validation_errors: "{{ output_data.outputs | selectattr('validation_status', 'equalto', 'invalid') | list | length | default(0) }}"
+          formats_used: "{{ output_manager.formats | dict2items | selectattr('value.enabled', 'equalto', true) | map(attribute='key') | list }}"
+      when: 
+        - output_manager.monitoring.enabled | default(false)
+        - output_data is defined
+    
+    - name: "Write metrics to file"
+      lineinfile:
+        path: "{{ output_manager.monitoring.metrics_file | default('/tmp/output_manager_metrics.json') }}"
+        line: "{{ session_metrics | to_json }}"
+        create: yes
+        mode: '0644'
+      when: 
+        - output_manager.monitoring.enabled | default(false)
+        - session_metrics is defined
+      delegate_to: localhost
+      run_once: true
+  
+  tags:
+    - output_manager
+    - metrics
+    - monitoring

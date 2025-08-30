@@ -1,0 +1,73 @@
+---
+################################################################################
+# VMware State Check Role
+#
+# This role performs pre-flight checks and validates the current state:
+# - Checks if VM already exists
+# - Validates resource availability
+# - Initializes state tracking
+#
+# Failed checks will stop the deployment to prevent issues
+################################################################################
+
+############################################################################
+# VM Existence Check
+# Verifies if VM with the same name already exists to prevent duplicates
+############################################################################
+- name: Check if VM already exists
+  vmware_guest_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+  register: vm_info
+  ignore_errors: true # Continue if VM doesn't exist
+
+- name: Set VM state fact
+  set_fact:
+    vm_exists: "{{ vm_info.failed is not defined }}"
+
+############################################################################
+# Resource Availability Check
+# Ensures sufficient resources are available before deployment
+############################################################################
+- name: Check resource availability
+  block:
+    # Verify datastore space
+    - name: Check datastore space
+      vmware_datastore_info:
+        hostname: "{{ vcenter.hostname }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: "{{ vcenter.validate_certs }}"
+        name: "{{ vm_datastore }}"
+      register: ds_info
+
+    # Ensure sufficient space exists
+    - name: Verify sufficient space
+      assert:
+        that:
+          - "ds_info.datastores[0].freeSpace|int > (vm_defaults.disk_gb * 1024 * 1024 * 1024)"
+        fail_msg: "Insufficient space in datastore for VM deployment"
+        success_msg: "Sufficient space available in datastore"
+
+############################################################################
+# State Tracking Initialization
+# Creates initial state file for tracking deployment progress
+############################################################################
+- name: Initialize state tracking
+  copy:
+    content: |
+      {
+        "vm_name": "{{ vm_name }}",
+        "state": "init",
+        "steps_completed": [],
+        "current_step": "state_check",
+        "start_time": "{{ ansible_date_time.iso8601 }}",
+        "environment": "{{ env }}",
+        "location": "{{ location }}",
+        "os_type": "{{ vm_os }}"
+      }
+    dest: "{{ state_file }}"
+  when: not vm_exists # Only initialize if this is a new VM

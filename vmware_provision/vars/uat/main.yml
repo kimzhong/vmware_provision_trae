@@ -1,0 +1,111 @@
+---
+################################################################################
+# UAT Environment Configuration
+################################################################################
+
+# vCenter Settings
+vcenter_host: "vcenter-uat.example.com"
+vcenter_username: "{{ lookup('env', 'VCENTER_UAT_USERNAME') }}"
+vcenter_password: "{{ lookup('env', 'VCENTER_UAT_PASSWORD') }}"
+
+# Infrastructure Settings
+datacenter: "UAT-DC"
+cluster: "UAT-Cluster"
+folder_base: "/UAT"
+
+# Network Configuration
+networks:
+  app:
+    name: "UAT-APP-NET"
+    type: "distributed"
+    vlan: 300
+    subnet: "{{ env_defaults.uat.subnet }}"
+    gateway: "{{ env_defaults.uat.gateway }}"
+  db:
+    name: "UAT-DB-NET"
+    type: "distributed"
+    vlan: 301
+    subnet: "10.2.1.0/24"
+    gateway: "10.2.1.1"
+  test:
+    name: "UAT-TEST-NET"
+    type: "distributed"
+    vlan: 302
+    subnet: "10.2.2.0/24"
+    gateway: "10.2.2.1"
+
+# Storage Configuration
+datastores:
+  tier1:
+    name: "UAT-SSD-01"
+    type: "ssd"
+    multipath_policy: "round-robin"
+  tier2:
+    name: "UAT-HDD-01"
+    type: "hdd"
+    multipath_policy: "fixed"
+
+# Resource Pool Configuration
+resource_pool: "{{ resource_pools.uat }}"
+
+# Folder Structure
+folders:
+  windows: "{{ folder_base }}/Windows"
+  linux: "{{ folder_base }}/Linux"
+  app: "{{ folder_base }}/Applications"
+  db: "{{ folder_base }}/Databases"
+  test: "{{ folder_base }}/Testing"
+
+# High Availability Settings
+ha_settings:
+  enabled: true
+  host_monitoring: "enabled"
+  vm_monitoring: "vmMonitoringOnly"
+  failure_response: "restartVm"
+  isolation_response: "powerOff"
+
+# DRS Settings
+drs_settings:
+  enabled: true
+  automation_level: "fullyAutomated"
+  migration_threshold: 4
+
+# Testing Environment Settings
+testing:
+  enable_snapshots: true
+  snapshot_retention_days: 7
+  max_snapshots: 3
+  cleanup_schedule: "daily"
+
+# Monitoring Settings
+monitoring:
+  enabled: true
+  metrics:
+    - cpu
+    - memory
+    - disk
+    - network
+  alerts:
+    - type: "cpu"
+      threshold: 85
+    - type: "memory"
+      threshold: 85
+    - type: "disk"
+      threshold: 90
+
+# Security Settings
+security:
+  ntp_servers:
+    - "uat-ntp1.example.com"
+    - "uat-ntp2.example.com"
+  syslog_servers:
+    - "uat-syslog1.example.com"
+  firewall_rules:
+    - name: "UAT-APP-FW"
+      source: "{{ networks.app.subnet }}"
+      destination: "{{ networks.db.subnet }}"
+      ports: "1433,3306"
+    - name: "UAT-TEST-FW"
+      source: "{{ networks.test.subnet }}"
+      destination: "{{ networks.app.subnet }}"
+      ports: "80,443,8080"

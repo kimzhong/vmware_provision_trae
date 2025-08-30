@@ -1,0 +1,396 @@
+---
+# Retry Manager Role - Handlers
+# Event-driven handlers for retry session management, cleanup, and integration
+
+# =============================================================================
+# Session Management Handlers
+# =============================================================================
+
+- name: finalize retry session
+  block:
+    - name: Update retry session status to completed
+      set_fact:
+        retry_session_status: "completed"
+        retry_session_end: "{{ ansible_date_time.iso8601 }}"
+        retry_session_duration: "{{ (ansible_date_time.epoch | int) - (retry_session_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+    
+    - name: Calculate final session statistics
+      set_fact:
+        retry_final_statistics: "{{ retry_statistics | combine({
+          'session_duration': retry_session_duration | int,
+          'operations_per_minute': ((retry_statistics.total_operations | int) * 60 / (retry_session_duration | int)) | round(2) if (retry_session_duration | int) > 0 else 0,
+          'success_rate': ((retry_statistics.successful_operations | int) * 100 / (retry_statistics.total_operations | int)) | round(2) if (retry_statistics.total_operations | int) > 0 else 0,
+          'failure_rate': ((retry_statistics.failed_operations | int) * 100 / (retry_statistics.total_operations | int)) | round(2) if (retry_statistics.total_operations | int) > 0 else 0,
+          'retry_rate': ((retry_statistics.retried_operations | int) * 100 / (retry_statistics.total_operations | int)) | round(2) if (retry_statistics.total_operations | int) > 0 else 0
+        }) }}"
+    
+    - name: Write final retry session summary
+      copy:
+        content: |
+          {
+            "session_id": "{{ retry_session_id }}",
+            "session_start": "{{ retry_session_start }}",
+            "session_end": "{{ retry_session_end }}",
+            "session_duration": {{ retry_session_duration }},
+            "session_status": "{{ retry_session_status }}",
+            "final_statistics": {{ retry_final_statistics | to_nice_json }},
+            "all_operations": {{ retry_operations | to_nice_json }},
+            "configuration": {
+              "max_attempts": {{ retry_manager.max_attempts | default(3) }},
+              "retry_policy": "{{ retry_manager.retry_policy | default('exponential_backoff') }}",
+              "base_delay": {{ retry_manager.base_delay | default(5) }},
+              "max_delay": {{ retry_manager.max_delay | default(300) }}
+            },
+            "metadata": {
+              "ansible_version": "{{ ansible_version.full }}",
+              "controller_hostname": "{{ ansible_hostname }}",
+              "execution_user": "{{ ansible_user_id }}",
+              "call_stack_session_id": "{{ call_stack_session_id | default('') }}",
+              "output_session_id": "{{ output_session_id | default('') }}"
+            }
+          }
+        dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/retry_session_final_{{ retry_session_id }}.json"
+        mode: '0644'
+      when: retry_manager.file_output | default(true) | bool
+    
+    - name: Register final session statistics to AAP
+      set_stats:
+        data:
+          retry_session_final_status: "{{ retry_session_status }}"
+          retry_session_duration: "{{ retry_session_duration }}"
+          retry_final_statistics: "{{ retry_final_statistics }}"
+          retry_session_end_timestamp: "{{ retry_session_end }}"
+      when: retry_manager.artifacts_integration | default(true) | bool
+  
+  listen: "finalize retry session"
+  tags:
+    - retry_manager
+    - session_finalization
+
+- name: cleanup retry session on error
+  block:
+    - name: Update retry session status to error
+      set_fact:
+        retry_session_status: "error"
+        retry_session_error: "{{ ansible_failed_result | default('Unknown error occurred') }}"
+        retry_session_end: "{{ ansible_date_time.iso8601 }}"
+    
+    - name: Write error session data
+      copy:
+        content: |
+          {
+            "session_id": "{{ retry_session_id }}",
+            "session_start": "{{ retry_session_start }}",
+            "session_end": "{{ retry_session_end }}",
+            "session_status": "{{ retry_session_status }}",
+            "error_details": {{ retry_session_error | to_nice_json }},
+            "partial_statistics": {{ retry_statistics | to_nice_json }},
+            "completed_operations": {{ retry_operations | to_nice_json }},
+            "metadata": {
+              "ansible_version": "{{ ansible_version.full }}",
+              "controller_hostname": "{{ ansible_hostname }}",
+              "execution_user": "{{ ansible_user_id }}"
+            }
+          }
+        dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/retry_session_error_{{ retry_session_id }}.json"
+        mode: '0644'
+      when: retry_manager.file_output | default(true) | bool
+    
+    - name: Register error session to AAP
+      set_stats:
+        data:
+          retry_session_error_status: "{{ retry_session_status }}"
+          retry_session_error_details: "{{ retry_session_error }}"
+          retry_session_error_timestamp: "{{ retry_session_end }}"
+      when: retry_manager.artifacts_integration | default(true) | bool
+  
+  listen: "cleanup retry session on error"
+  tags:
+    - retry_manager
+    - error_cleanup
+
+# =============================================================================
+# File Management Handlers
+# =============================================================================
+
+- name: compress retry files
+  block:
+    - name: Find large retry files for compression
+      find:
+        paths: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}"
+        patterns: "*.json"
+        size: "{{ retry_manager.compression_threshold | default(1048576) }}"
+      register: large_retry_files
+    
+    - name: Compress large retry files
+      archive:
+        path: "{{ item.path }}"
+        dest: "{{ item.path }}.gz"
+        format: gz
+        remove: true
+      loop: "{{ large_retry_files.files }}"
+      when: 
+        - retry_manager.enable_compression | default(true) | bool
+        - large_retry_files.files | length > 0
+  
+  listen: "compress retry files"
+  tags:
+    - retry_manager
+    - file_compression
+
+- name: cleanup old retry files
+  block:
+    - name: Find old retry session files
+      find:
+        paths: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}"
+        patterns: "retry_session_*.json*"
+        age: "{{ retry_manager.retention.days | default(7) }}d"
+      register: old_retry_files
+    
+    - name: Remove old retry session files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_retry_files.files }}"
+      when: 
+        - retry_manager.retention.auto_cleanup | default(true) | bool
+        - old_retry_files.files | length > 0
+    
+    - name: Check total retry files size
+      shell: |
+        du -sb {{ retry_manager.output_dir | default('/tmp/ansible_retry') }} | cut -f1
+      register: total_size_check
+      changed_when: false
+    
+    - name: Remove oldest files if size limit exceeded
+      block:
+        - name: Find all retry files sorted by age
+          find:
+            paths: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}"
+            patterns: "retry_*.json*"
+          register: all_retry_files
+        
+        - name: Sort files by modification time and remove oldest
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ all_retry_files.files | sort(attribute='mtime') }}"
+          when: 
+            - (total_size_check.stdout | int) > ((retry_manager.retention.max_total_size | default(500)) * 1024 * 1024)
+            - loop.index <= ((all_retry_files.files | length) * 0.2) | int  # Remove oldest 20%
+      when: 
+        - retry_manager.retention.auto_cleanup | default(true) | bool
+        - (total_size_check.stdout | int) > ((retry_manager.retention.max_total_size | default(500)) * 1024 * 1024)
+  
+  listen: "cleanup old retry files"
+  tags:
+    - retry_manager
+    - file_cleanup
+
+- name: archive retry session
+  block:
+    - name: Create archive directory
+      file:
+        path: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/archives"
+        state: directory
+        mode: '0755'
+    
+    - name: Archive completed retry session files
+      archive:
+        path: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/retry_session_*{{ retry_session_id }}*.json*"
+        dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/archives/retry_session_{{ retry_session_id }}_{{ ansible_date_time.epoch }}.tar.gz"
+        format: gz
+        remove: true
+      when: retry_manager.retention.auto_cleanup | default(true) | bool
+  
+  listen: "archive retry session"
+  tags:
+    - retry_manager
+    - archiving
+
+# =============================================================================
+# External Integration Handlers
+# =============================================================================
+
+- name: send retry metrics to external systems
+  block:
+    - name: Send session completion metrics
+      uri:
+        url: "{{ item.url }}"
+        method: "{{ item.method | default('POST') }}"
+        headers:
+          Content-Type: "application/json"
+          Authorization: "{{ item.auth_header | default('') }}"
+        body_format: json
+        body:
+          event_type: "retry_session_completed"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          session_id: "{{ retry_session_id }}"
+          session_duration: "{{ retry_session_duration | default(0) }}"
+          statistics: "{{ retry_final_statistics | default(retry_statistics) }}"
+          status: "{{ retry_session_status }}"
+          environment: "{{ retry_deployment_context.environment | default('unknown') }}"
+          component: "retry_manager"
+        timeout: "{{ item.timeout | default(30) }}"
+        status_code: [200, 201, 202]
+      loop: "{{ retry_manager.external_systems | default([]) }}"
+      when: 
+        - retry_manager.external_integration | default(false) | bool
+        - item.enabled | default(true) | bool
+      ignore_errors: true
+      retries: "{{ retry_manager.external_retry_attempts | default(2) }}"
+      delay: "{{ retry_manager.external_retry_delay | default(5) }}"
+  
+  listen: "send retry metrics to external systems"
+  tags:
+    - retry_manager
+    - external_integration
+
+- name: send retry alerts
+  block:
+    - name: Check alert conditions
+      set_fact:
+        retry_alerts_triggered:
+          low_success_rate: "{{ (retry_final_statistics.success_rate | default(100)) < (retry_manager.monitoring.alerts.min_success_rate | default(85)) }}"
+          high_retry_rate: "{{ (retry_final_statistics.average_retry_count | default(0)) > (retry_manager.monitoring.alerts.max_average_retries | default(2.5)) }}"
+          long_execution: "{{ (retry_session_duration | default(0) | int) > (retry_manager.monitoring.alerts.max_execution_time | default(1800)) }}"
+          high_error_rate: "{{ (retry_final_statistics.failure_rate | default(0)) > (retry_manager.monitoring.alerts.max_error_rate | default(15)) }}"
+    
+    - name: Send alert notifications
+      uri:
+        url: "{{ item.url }}"
+        method: "{{ item.method | default('POST') }}"
+        headers:
+          Content-Type: "application/json"
+          Authorization: "{{ item.auth_header | default('') }}"
+        body_format: json
+        body:
+          event_type: "retry_session_alert"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          session_id: "{{ retry_session_id }}"
+          alert_conditions: "{{ retry_alerts_triggered }}"
+          statistics: "{{ retry_final_statistics | default(retry_statistics) }}"
+          severity: |
+            {%- if retry_alerts_triggered.low_success_rate or retry_alerts_triggered.high_error_rate -%}
+              critical
+            {%- elif retry_alerts_triggered.high_retry_rate or retry_alerts_triggered.long_execution -%}
+              warning
+            {%- else -%}
+              info
+            {%- endif -%}
+          environment: "{{ retry_deployment_context.environment | default('unknown') }}"
+          component: "retry_manager"
+        timeout: "{{ item.timeout | default(30) }}"
+        status_code: [200, 201, 202]
+      loop: "{{ retry_manager.external_systems | default([]) }}"
+      when: 
+        - retry_manager.external_integration | default(false) | bool
+        - retry_manager.monitoring.enabled | default(true) | bool
+        - item.enabled | default(true) | bool
+        - (retry_alerts_triggered.low_success_rate or retry_alerts_triggered.high_retry_rate or retry_alerts_triggered.long_execution or retry_alerts_triggered.high_error_rate)
+      ignore_errors: true
+  
+  listen: "send retry alerts"
+  tags:
+    - retry_manager
+    - alerting
+
+# =============================================================================
+# Component Integration Handlers
+# =============================================================================
+
+- name: update call stack with retry status
+  block:
+    - name: Update call stack manager with retry completion
+      set_stats:
+        data:
+          call_stack_retry_session_id: "{{ retry_session_id }}"
+          call_stack_retry_status: "{{ retry_session_status }}"
+          call_stack_retry_statistics: "{{ retry_final_statistics | default(retry_statistics) }}"
+          call_stack_retry_timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: 
+        - retry_manager.integration.call_stack_manager | default(true) | bool
+        - call_stack_session_id is defined
+        - call_stack_session_id | length > 0
+  
+  listen: "update call stack with retry status"
+  tags:
+    - retry_manager
+    - call_stack_integration
+
+- name: update output manager with retry data
+  block:
+    - name: Send retry session data to output manager
+      set_fact:
+        output_retry_data:
+          session_id: "{{ retry_session_id }}"
+          status: "{{ retry_session_status }}"
+          statistics: "{{ retry_final_statistics | default(retry_statistics) }}"
+          operations: "{{ retry_operations }}"
+          duration: "{{ retry_session_duration | default(0) }}"
+      when: 
+        - retry_manager.integration.output_manager | default(true) | bool
+        - output_session_id is defined
+        - output_session_id | length > 0
+  
+  listen: "update output manager with retry data"
+  tags:
+    - retry_manager
+    - output_integration
+
+- name: update aap state with retry metrics
+  block:
+    - name: Register retry metrics to AAP state manager
+      set_stats:
+        data:
+          aap_retry_session_id: "{{ retry_session_id }}"
+          aap_retry_final_status: "{{ retry_session_status }}"
+          aap_retry_success_rate: "{{ retry_final_statistics.success_rate | default(0) }}"
+          aap_retry_total_operations: "{{ retry_final_statistics.total_operations | default(0) }}"
+          aap_retry_session_duration: "{{ retry_session_duration | default(0) }}"
+          aap_retry_timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: 
+        - retry_manager.integration.aap_state_manager | default(true) | bool
+        - aap_state_context is defined
+  
+  listen: "update aap state with retry metrics"
+  tags:
+    - retry_manager
+    - aap_state_integration
+
+# =============================================================================
+# Performance and Monitoring Handlers
+# =============================================================================
+
+- name: update retry performance metrics
+  block:
+    - name: Calculate performance metrics
+      set_fact:
+        retry_performance_metrics:
+          throughput: "{{ ((retry_statistics.total_operations | int) / (retry_session_duration | default(1) | int)) | round(2) }}"
+          efficiency: "{{ (100 - (retry_statistics.retry_rate | default(0))) | round(2) }}"
+          reliability: "{{ retry_statistics.success_rate | default(0) }}"
+          resource_usage: {
+            "memory_mb": "{{ ansible_memory_mb.real.used | default(0) }}",
+            "cpu_percent": "{{ ansible_processor_vcpus | default(1) }}"
+          }
+    
+    - name: Write performance metrics
+      copy:
+        content: |
+          {
+            "session_id": "{{ retry_session_id }}",
+            "timestamp": "{{ ansible_date_time.iso8601 }}",
+            "performance_metrics": {{ retry_performance_metrics | to_nice_json }},
+            "detailed_statistics": {{ retry_final_statistics | default(retry_statistics) | to_nice_json }}
+          }
+        dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/retry_performance_{{ retry_session_id }}.json"
+        mode: '0644'
+      when: 
+        - retry_manager.performance.enable_monitoring | default(true) | bool
+        - retry_manager.file_output | default(true) | bool
+  
+  listen: "update retry performance metrics"
+  tags:
+    - retry_manager
+    - performance_monitoring

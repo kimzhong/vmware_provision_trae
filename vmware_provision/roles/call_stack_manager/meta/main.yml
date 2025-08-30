@@ -1,0 +1,181 @@
+---
+################################################################################
+# Call Stack Manager Role - Metadata
+#
+# This file contains metadata information for the call stack manager role,
+# including dependencies, supported platforms, and role information.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+galaxy_info:
+  role_name: call_stack_manager
+  namespace: vmware_provision
+  author: VMware Automation Team
+  description: |
+    Call Stack Manager role for VMware VM provisioning automation.
+    Provides centralized call chain tracking, execution context management,
+    and integration with Ansible Automation Platform (AAP) artifacts.
+    
+    Key Features:
+    - Session-based call stack tracking
+    - Component execution order management
+    - Unique call chain identifier generation
+    - AAP artifacts integration
+    - Error handling and cleanup
+    - Performance monitoring capabilities
+    - Configurable output formats
+  
+  company: VMware Automation Team
+  license: MIT
+  
+  min_ansible_version: "2.12"
+  
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "20.04"
+        - "22.04"
+    - name: Windows
+      versions:
+        - "2019"
+        - "2022"
+  
+  galaxy_tags:
+    - vmware
+    - automation
+    - provisioning
+    - call_stack
+    - tracking
+    - aap
+    - ansible
+    - workflow
+    - management
+    - monitoring
+
+# Role Dependencies
+# This role has no hard dependencies but integrates with other v2 core components
+dependencies: []
+
+# Optional role integrations (soft dependencies)
+# These roles can be used together with call_stack_manager for enhanced functionality
+integrations:
+  - role: output_manager
+    description: "Integrates with output manager for standardized output formatting"
+    optional: true
+  
+  - role: retry_manager
+    description: "Integrates with retry manager for call stack tracking during retries"
+    optional: true
+  
+  - role: idempotency_checker
+    description: "Integrates with idempotency checker for tracking idempotent operations"
+    optional: true
+  
+  - role: aap_state_manager
+    description: "Integrates with AAP state manager for enhanced state tracking"
+    optional: true
+
+# Role Collections Requirements
+collections:
+  - name: ansible.builtin
+    version: ">=2.12.0"
+  - name: community.general
+    version: ">=5.0.0"
+
+# Python Requirements
+python_requirements:
+  - "python>=3.8"
+  - "jinja2>=3.0.0"
+  - "pyyaml>=5.4.0"
+
+# Role Variables Documentation
+variables:
+  call_stack_manager:
+    description: "Main configuration dictionary for call stack manager"
+    type: "dict"
+    required: false
+    default: "See defaults/main.yml"
+  
+  call_stack_current_component:
+    description: "Current component name being tracked"
+    type: "string"
+    required: false
+    default: "call_stack_manager"
+  
+  call_stack_session_id:
+    description: "Unique session identifier for call stack tracking"
+    type: "string"
+    required: false
+    default: "Auto-generated"
+
+# Role Tags
+tags:
+  - always
+  - call_stack
+  - tracking
+  - management
+  - aap_integration
+  - debug
+  - output
+  - finalize
+  - error
+  - cleanup
+  - update
+  - maintenance
+
+# Role Compatibility
+compatibility:
+  ansible_automation_platform:
+    versions:
+      - "2.4"
+      - "2.5"
+    features:
+      - "Job Templates"
+      - "Workflow Templates"
+      - "Artifacts"
+      - "Statistics"
+  
+  vmware_vcenter:
+    versions:
+      - "8.0"
+      - "7.0"
+    apis:
+      - "vSphere API"
+      - "REST API"
+
+# Performance Characteristics
+performance:
+  execution_time:
+    typical: "< 5 seconds"
+    maximum: "< 30 seconds"
+  
+  memory_usage:
+    typical: "< 50MB"
+    maximum: "< 200MB"
+  
+  disk_usage:
+    call_stack_files: "< 10MB per session"
+    log_files: "< 100MB total"
+
+# Security Considerations
+security:
+  sensitive_data:
+    - "Call stack data may contain deployment context information"
+    - "Session IDs should be treated as sensitive in production"
+  
+  file_permissions:
+    call_stack_files: "0644"
+    log_files: "0644"
+    directories: "0755"
+  
+  recommendations:
+    - "Use secure file paths for call stack output"
+    - "Implement log rotation for long-running environments"
+    - "Consider encryption for sensitive deployment contexts"

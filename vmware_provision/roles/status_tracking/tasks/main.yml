@@ -1,0 +1,95 @@
+---
+################################################################################
+# Status Tracking Role
+#
+# This role manages deployment status tracking:
+# - Consolidates deployment status
+# - Generates deployment reports
+# - Updates AAP artifacts
+# - Manages state files
+#
+# Provides comprehensive deployment tracking and reporting
+################################################################################
+
+############################################################################
+# Status Collection
+# Gathers and consolidates deployment status information
+############################################################################
+- name: Load state file
+  slurp:
+    src: "{{ state_file }}"
+  register: state_content
+
+- name: Parse deployment state
+  set_fact:
+    deployment_state: "{{ state_content.content | b64decode | from_json }}"
+
+- name: Collect VM information
+  vmware_guest_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+  register: final_vm_info
+
+############################################################################
+# Report Generation
+# Creates a comprehensive deployment report
+############################################################################
+- name: Generate deployment report
+  set_fact:
+    deployment_report:
+      vm_name: "{{ vm_name }}"
+      environment: "{{ env }}"
+      location: "{{ location }}"
+      os_type: "{{ vm_os }}"
+      deployment_status: "{{ deployment_state.state }}"
+      steps_completed: "{{ deployment_state.steps_completed }}"
+      vm_details:
+        power_state: "{{ final_vm_info.instance.hw_power_status }}"
+        ip_address: "{{ final_vm_info.instance.ipv4 }}"
+        cpu_count: "{{ final_vm_info.instance.hw_processor_count }}"
+        memory_mb: "{{ final_vm_info.instance.hw_memory_mb }}"
+      deployment_timeline:
+        start_time: "{{ deployment_state.start_time }}"
+        end_time: "{{ ansible_date_time.iso8601 }}"
+      network_config: "{{ deployment_state.network_details | default({}) }}"
+      disk_config: "{{ deployment_state.disk_details | default({}) }}"
+      inventory_details: "{{ deployment_state.inventory_details | default({}) }}"
+
+############################################################################
+# AAP Artifact Update
+# Updates AAP with deployment artifacts and status
+############################################################################
+- name: Create deployment artifact
+  copy:
+    content: "{{ deployment_report | to_nice_json }}"
+    dest: "/tmp/deployment_{{ vm_name }}_{{ ansible_date_time.epoch }}.json"
+  register: artifact_creation
+
+- name: Set final deployment stats
+  set_stats:
+    data:
+      deployment_status: "{{ deployment_state.state }}"
+      deployment_report: "{{ deployment_report }}"
+      artifact_path: "{{ artifact_creation.dest }}"
+    aggregate: yes
+
+############################################################################
+# Cleanup
+# Performs cleanup operations if deployment is complete
+############################################################################
+- name: Cleanup state file
+  file:
+    path: "{{ state_file }}"
+    state: absent
+  when: deployment_state.state == 'complete'
+
+############################################################################
+# Notification
+# Sends deployment completion notification
+############################################################################
+- name: Send deployment notification
+  debug:
+    msg: "Deployment of VM {{ vm_name }} completed successfully with status {{ deployment_state.state }}"

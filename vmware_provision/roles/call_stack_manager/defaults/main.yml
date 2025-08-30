@@ -1,0 +1,131 @@
+---
+################################################################################
+# Call Stack Manager Role - Default Variables
+#
+# This file contains default configuration variables for the call stack manager.
+# These variables control call chain tracking behavior, output settings,
+# and integration with AAP artifacts.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+# Call Stack Manager Configuration
+call_stack_manager:
+  # Session ID prefix for generating unique session identifiers
+  session_id_prefix: "vm_deploy"
+  
+  # Maximum allowed call stack depth to prevent infinite recursion
+  max_stack_depth: 10
+  
+  # Enable/disable file output for call stack data
+  file_output: true
+  
+  # Output file path for call stack data (optional)
+  # If not specified, will use /tmp/call_stack_<session_id>.json
+  output_file: ""
+  
+  # Enable/disable AAP artifacts integration
+  artifacts_integration: true
+  
+  # Enable/disable debug output
+  debug_mode: false
+  
+  # Call stack data retention settings
+  retention:
+    # Keep call stack files for specified days
+    days: 30
+    # Enable automatic cleanup of old call stack files
+    auto_cleanup: true
+  
+  # Component tracking settings
+  component_tracking:
+    # Track execution time for each component
+    track_execution_time: true
+    # Track resource usage (memory, CPU) if available
+    track_resources: false
+    # Track component dependencies
+    track_dependencies: true
+  
+  # Error handling settings
+  error_handling:
+    # Continue execution on call stack errors
+    continue_on_error: true
+    # Log call stack errors to separate file
+    log_errors: true
+    # Error log file path
+    error_log_file: "/tmp/call_stack_errors.log"
+  
+  # Integration settings
+  integration:
+    # Enable integration with output_manager role
+    output_manager: true
+    # Enable integration with retry_manager role
+    retry_manager: true
+    # Enable integration with idempotency_checker role
+    idempotency_checker: true
+    # Enable integration with aap_state_manager role
+    aap_state_manager: true
+
+# Default call stack current component (can be overridden by calling roles)
+call_stack_current_component: "call_stack_manager"
+
+# Call stack session variables (initialized by the role)
+call_stack_session_id: ""
+call_chain_id: ""
+call_stack_initialized: false
+call_stack_session_active: false
+
+# Call stack data structure (initialized by the role)
+call_stack_data: {}
+
+# Component execution tracking
+component_execution_tracking:
+  enabled: true
+  track_start_time: true
+  track_end_time: true
+  track_duration: true
+  track_status: true
+  track_errors: true
+
+# Call stack output formats
+output_formats:
+  # JSON format for structured data
+  json:
+    enabled: true
+    pretty_print: true
+    include_metadata: true
+  
+  # YAML format for human-readable output
+  yaml:
+    enabled: false
+    include_comments: true
+  
+  # CSV format for data analysis
+  csv:
+    enabled: false
+    include_headers: true
+    delimiter: ","
+
+# Call stack validation settings
+validation:
+  # Validate call stack integrity
+  validate_integrity: true
+  # Check for circular dependencies
+  check_circular_deps: true
+  # Validate component names
+  validate_component_names: true
+  # Allowed component name pattern (regex)
+  component_name_pattern: "^[a-zA-Z0-9_-]+$"
+
+# Performance monitoring
+performance_monitoring:
+  # Enable performance tracking
+  enabled: false
+  # Track memory usage
+  track_memory: false
+  # Track CPU usage
+  track_cpu: false
+  # Performance data output file
+  output_file: "/tmp/call_stack_performance.json"

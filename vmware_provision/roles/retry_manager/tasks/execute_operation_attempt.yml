@@ -1,0 +1,318 @@
+---
+# Retry Manager - Execute Operation Attempt
+# This file handles individual retry attempts with intelligent backoff and error analysis
+
+- name: Initialize attempt data
+  set_fact:
+    attempt_start_time: "{{ ansible_date_time.iso8601 }}"
+    attempt_data:
+      attempt_number: "{{ attempt_number }}"
+      start_time: "{{ ansible_date_time.iso8601 }}"
+      end_time: null
+      status: "in_progress"
+      error_type: null
+      error_message: null
+      should_retry: false
+      delay_before_retry: 0
+      execution_time: 0
+  tags:
+    - retry_manager
+    - attempt_execution
+
+- name: Calculate retry delay for current attempt
+  set_fact:
+    retry_calculated_delay: |
+      {%- if attempt_number | int > 1 -%}
+        {%- if operation_data.retry_policy == 'exponential_backoff' -%}
+          {%- set base_delay = operation_data.base_delay | int -%}
+          {%- set multiplier = operation_data.backoff_multiplier | float -%}
+          {%- set max_delay = operation_data.max_delay | int -%}
+          {%- set calculated = (base_delay * (multiplier ** (attempt_number | int - 2))) | int -%}
+          {%- set delay_with_jitter = calculated -%}
+          {%- if operation_data.jitter_enabled | bool -%}
+            {%- set jitter = (calculated * 0.1 * (1.0 | random)) | int -%}
+            {%- set delay_with_jitter = calculated + jitter -%}
+          {%- endif -%}
+          {{ [delay_with_jitter, max_delay] | min }}
+        {%- elif operation_data.retry_policy == 'linear_backoff' -%}
+          {%- set base_delay = operation_data.base_delay | int -%}
+          {%- set max_delay = operation_data.max_delay | int -%}
+          {%- set calculated = base_delay * (attempt_number | int - 1) -%}
+          {{ [calculated, max_delay] | min }}
+        {%- elif operation_data.retry_policy == 'fixed_delay' -%}
+          {{ operation_data.base_delay | int }}
+        {%- else -%}
+          {{ operation_data.base_delay | int }}
+        {%- endif -%}
+      {%- else -%}
+        0
+      {%- endif -%}
+  tags:
+    - retry_manager
+    - delay_calculation
+
+- name: Wait before retry attempt (if not first attempt)
+  pause:
+    seconds: "{{ retry_calculated_delay | int }}"
+  when: 
+    - attempt_number | int > 1
+    - retry_calculated_delay | int > 0
+  tags:
+    - retry_manager
+    - delay_execution
+
+- name: Update attempt data with delay information
+  set_fact:
+    attempt_data: "{{ attempt_data | combine({
+      'delay_before_retry': retry_calculated_delay | int
+    }) }}"
+  tags:
+    - retry_manager
+    - attempt_tracking
+
+- name: Execute the actual operation
+  block:
+    # This is where the actual operation would be executed
+    # The operation is defined by the retry_current_operation variable
+    # and should be implemented as a separate task file or role
+    
+    - name: Include operation-specific task file
+      include_tasks: "operations/{{ retry_current_operation }}.yml"
+      when: retry_current_operation is defined
+      vars:
+        operation_attempt: "{{ attempt_number }}"
+        operation_context: "{{ retry_component_context | default({}) }}"
+        retry_session_context:
+          session_id: "{{ operation_data.session_id }}"
+          operation_id: "{{ operation_data.operation_id }}"
+          attempt_number: "{{ attempt_number }}"
+          max_attempts: "{{ operation_data.max_attempts }}"
+      register: operation_result
+    
+    - name: Mark attempt as successful
+      set_fact:
+        attempt_success: true
+        attempt_result: "{{ operation_result }}"
+        attempt_error: null
+      tags:
+        - retry_manager
+        - success_handling
+
+  rescue:
+    - name: Analyze operation failure
+      set_fact:
+        attempt_success: false
+        attempt_error: "{{ ansible_failed_result }}"
+        attempt_result: null
+      tags:
+        - retry_manager
+        - error_analysis
+
+    - name: Determine error type and retry eligibility
+      set_fact:
+        error_analysis:
+          error_type: |
+            {%- set error_msg = attempt_error.msg | default('') | lower -%}
+            {%- if 'connection' in error_msg or 'network' in error_msg or 'unreachable' in error_msg -%}
+              connection_error
+            {%- elif 'timeout' in error_msg or 'timed out' in error_msg -%}
+              timeout
+            {%- elif 'temporary' in error_msg or 'busy' in error_msg or 'locked' in error_msg -%}
+              temporary_failure
+            {%- elif 'authentication' in error_msg or 'unauthorized' in error_msg or 'forbidden' in error_msg -%}
+              authentication_error
+            {%- elif 'not found' in error_msg or '404' in error_msg -%}
+              resource_not_found
+            {%- elif 'permission' in error_msg or 'access denied' in error_msg -%}
+              permission_error
+            {%- elif 'configuration' in error_msg or 'invalid' in error_msg -%}
+              configuration_error
+            {%- else -%}
+              unknown_error
+            {%- endif -%}
+          should_retry: |
+            {%- set error_msg = attempt_error.msg | default('') | lower -%}
+            {%- set error_type = '' -%}
+            {%- if 'connection' in error_msg or 'network' in error_msg or 'unreachable' in error_msg -%}
+              {%- set error_type = 'connection_error' -%}
+            {%- elif 'timeout' in error_msg or 'timed out' in error_msg -%}
+              {%- set error_type = 'timeout' -%}
+            {%- elif 'temporary' in error_msg or 'busy' in error_msg or 'locked' in error_msg -%}
+              {%- set error_type = 'temporary_failure' -%}
+            {%- else -%}
+              {%- set error_type = 'unknown_error' -%}
+            {%- endif -%}
+            {{ error_type in operation_data.retry_conditions }}
+          retry_recommended: |
+            {%- set error_msg = attempt_error.msg | default('') | lower -%}
+            {%- if 'authentication' in error_msg or 'unauthorized' in error_msg or 'forbidden' in error_msg -%}
+              false
+            {%- elif 'not found' in error_msg or '404' in error_msg -%}
+              false
+            {%- elif 'permission' in error_msg or 'access denied' in error_msg -%}
+              false
+            {%- elif 'configuration' in error_msg or 'invalid' in error_msg -%}
+              false
+            {%- else -%}
+              true
+            {%- endif -%}
+      tags:
+        - retry_manager
+        - error_classification
+
+    - name: Log detailed error information
+      debug:
+        msg: |
+          Retry Manager - Attempt {{ attempt_number }} Failed:
+          ============================================
+          Operation: {{ retry_current_operation }}
+          Error Type: {{ error_analysis.error_type }}
+          Should Retry: {{ error_analysis.should_retry }}
+          Retry Recommended: {{ error_analysis.retry_recommended }}
+          Remaining Attempts: {{ (operation_data.max_attempts | int) - (attempt_number | int) }}
+          Error Details: {{ attempt_error.msg | default('No error message available') }}
+      when: retry_manager.debug_mode | default(false) | bool
+      tags:
+        - retry_manager
+        - error_logging
+
+    - name: Determine if retry should be attempted
+      set_fact:
+        should_attempt_retry: |
+          {%- set has_remaining_attempts = (attempt_number | int) < (operation_data.max_attempts | int) -%}
+          {%- set error_is_retryable = error_analysis.should_retry | bool -%}
+          {%- set retry_is_recommended = error_analysis.retry_recommended | bool -%}
+          {{ has_remaining_attempts and error_is_retryable and retry_is_recommended }}
+      tags:
+        - retry_manager
+        - retry_decision
+
+    - name: Fail immediately for non-retryable errors
+      fail:
+        msg: |
+          Retry Manager - Non-retryable Error Detected:
+          Operation: {{ retry_current_operation }}
+          Attempt: {{ attempt_number }}/{{ operation_data.max_attempts }}
+          Error Type: {{ error_analysis.error_type }}
+          Error: {{ attempt_error.msg | default('Unknown error occurred') }}
+          
+          This error type is not eligible for retry. Please check the operation configuration and resolve the underlying issue.
+      when: 
+        - not (should_attempt_retry | bool)
+        - attempt_number | int >= operation_data.max_attempts | int
+        - retry_manager.fail_fast_on_non_retryable | default(false) | bool
+      tags:
+        - retry_manager
+        - fail_fast
+
+- name: Calculate attempt execution time
+  set_fact:
+    attempt_end_time: "{{ ansible_date_time.iso8601 }}"
+    attempt_execution_time: "{{ (ansible_date_time.epoch | int) - (attempt_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+  tags:
+    - retry_manager
+    - timing
+
+- name: Update attempt data with final results
+  set_fact:
+    attempt_data: "{{ attempt_data | combine({
+      'end_time': attempt_end_time,
+      'status': 'success' if (attempt_success | default(false)) else 'failed',
+      'error_type': error_analysis.error_type if not (attempt_success | default(false)) else null,
+      'error_message': attempt_error.msg if not (attempt_success | default(false)) else null,
+      'should_retry': should_attempt_retry | default(false) if not (attempt_success | default(false)) else false,
+      'execution_time': attempt_execution_time | int
+    }) }}"
+  tags:
+    - retry_manager
+    - attempt_finalization
+
+- name: Add attempt to operation attempts list
+  set_fact:
+    retry_current_operation_data: "{{ retry_current_operation_data | combine({
+      'attempts': retry_current_operation_data.attempts + [attempt_data]
+    }) }}"
+  tags:
+    - retry_manager
+    - attempt_tracking
+
+- name: Write attempt data to file (if enabled)
+  copy:
+    content: |
+      {
+        "operation_id": "{{ operation_data.operation_id }}",
+        "session_id": "{{ operation_data.session_id }}",
+        "attempt_data": {{ attempt_data | to_nice_json }},
+        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "operation_context": {{ retry_component_context | default({}) | to_nice_json }}
+      }
+    dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/attempt_{{ operation_data.operation_id }}_{{ attempt_number }}.json"
+    mode: '0644'
+  when: 
+    - retry_manager.file_output | default(true) | bool
+    - retry_manager.log_individual_attempts | default(false) | bool
+  tags:
+    - retry_manager
+    - attempt_logging
+
+- name: Register attempt metrics to AAP
+  set_stats:
+    data:
+      "retry_attempt_{{ attempt_number }}_status": "{{ attempt_data.status }}"
+      "retry_attempt_{{ attempt_number }}_execution_time": "{{ attempt_data.execution_time }}"
+      "retry_attempt_{{ attempt_number }}_error_type": "{{ attempt_data.error_type | default('none') }}"
+      "retry_attempt_{{ attempt_number }}_should_retry": "{{ attempt_data.should_retry }}"
+      "retry_attempt_{{ attempt_number }}_timestamp": "{{ attempt_data.end_time }}"
+  when: 
+    - retry_manager.artifacts_integration | default(true) | bool
+    - retry_manager.log_individual_attempts | default(false) | bool
+  tags:
+    - retry_manager
+    - aap_metrics
+
+- name: Send attempt metrics to external systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default('') }}"
+    body_format: json
+    body:
+      timestamp: "{{ attempt_data.end_time }}"
+      session_id: "{{ operation_data.session_id }}"
+      operation_id: "{{ operation_data.operation_id }}"
+      attempt_number: "{{ attempt_number }}"
+      status: "{{ attempt_data.status }}"
+      execution_time: "{{ attempt_data.execution_time }}"
+      error_type: "{{ attempt_data.error_type | default('none') }}"
+      should_retry: "{{ attempt_data.should_retry }}"
+      delay_before_retry: "{{ attempt_data.delay_before_retry }}"
+      component: "retry_manager"
+      operation: "{{ retry_current_operation }}"
+    timeout: "{{ item.timeout | default(30) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ retry_manager.external_systems | default([]) }}"
+  when: 
+    - retry_manager.external_integration | default(false) | bool
+    - retry_manager.log_individual_attempts | default(false) | bool
+    - item.enabled | default(true) | bool
+  ignore_errors: true
+  tags:
+    - retry_manager
+    - external_metrics
+
+- name: Fail the attempt if operation failed and no more retries
+  fail:
+    msg: |
+      Retry Manager - Operation Attempt Failed:
+      Attempt: {{ attempt_number }}/{{ operation_data.max_attempts }}
+      Error Type: {{ attempt_data.error_type | default('unknown') }}
+      Error: {{ attempt_data.error_message | default('Unknown error occurred') }}
+      Should Retry: {{ attempt_data.should_retry }}
+  when: 
+    - not (attempt_success | default(false))
+    - not (attempt_data.should_retry | default(false))
+  tags:
+    - retry_manager
+    - attempt_failure

@@ -1,0 +1,282 @@
+---
+# AAP State Manager Role - Main Tasks
+# This file contains the main tasks for AAP (Ansible Automation Platform) state management
+# Provides comprehensive state synchronization, job tracking, and platform integration
+
+- name: Initialize AAP state management session
+  set_fact:
+    aap_state_session_id: "{{ aap_state_session_id_prefix }}_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}_{{ ansible_hostname | hash('md5') | truncate(8, True, '') }}"
+    aap_state_session_start: "{{ ansible_date_time.iso8601 }}"
+    aap_state_session_status: "initializing"
+    aap_state_operations: []
+    aap_state_session_statistics:
+      total_operations: 0
+      successful_operations: 0
+      failed_operations: 0
+      state_updates: 0
+      artifacts_registered: 0
+      metrics_sent: 0
+      execution_time: 0
+  tags: ["aap_state", "initialization"]
+
+- name: Validate AAP state manager configuration
+  assert:
+    that:
+      - aap_state_manager is defined
+      - aap_state_manager.enabled | default(true)
+      - aap_state_current_operation is defined
+      - aap_state_component_context is defined
+    fail_msg: "AAP state manager configuration is invalid or incomplete"
+    success_msg: "AAP state manager configuration validated successfully"
+  tags: ["aap_state", "validation"]
+
+- name: Generate AAP state operation unique identifier
+  set_fact:
+    aap_state_operation_id: "{{ aap_state_current_operation }}_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}_{{ ansible_hostname | hash('md5') | truncate(6, True, '') }}"
+    aap_state_operation_start: "{{ ansible_date_time.iso8601 }}"
+  tags: ["aap_state", "operation"]
+
+- name: Initialize AAP state operation data structure
+  set_fact:
+    aap_state_operation_data: "{{ aap_state_output_data.operation_template | combine({
+      'operation_id': aap_state_operation_id,
+      'operation_name': aap_state_current_operation,
+      'session_id': aap_state_session_id,
+      'start_time': aap_state_operation_start,
+      'status': 'processing',
+      'component_context': aap_state_component_context,
+      'aap_context': {
+        'job_id': aap_integration_context.aap_job_id | default(''),
+        'workflow_id': aap_integration_context.aap_workflow_id | default(''),
+        'execution_environment': aap_integration_context.aap_execution_environment | default('default'),
+        'organization': aap_integration_context.aap_organization | default(''),
+        'project': aap_integration_context.aap_project | default(''),
+        'inventory': aap_integration_context.aap_inventory | default('')
+      }
+    }) }}"
+  tags: ["aap_state", "operation"]
+
+- name: Create AAP state output directory
+  file:
+    path: "{{ aap_state_manager.output_directory }}/{{ aap_state_session_id }}"
+    state: directory
+    mode: "{{ aap_state_manager.security.directory_permissions | default('0755') }}"
+  when: aap_state_manager.file_output_enabled | default(true)
+  tags: ["aap_state", "filesystem"]
+
+- name: Perform AAP state synchronization
+  include_tasks: synchronize_aap_state.yml
+  vars:
+    aap_state_sync_operation: "{{ aap_state_current_operation }}"
+    aap_state_sync_context: "{{ aap_state_component_context }}"
+  tags: ["aap_state", "synchronization"]
+
+- name: Register AAP artifacts and metadata
+  include_tasks: register_aap_artifacts.yml
+  vars:
+    aap_artifacts_operation: "{{ aap_state_current_operation }}"
+    aap_artifacts_context: "{{ aap_state_component_context }}"
+  when: aap_state_manager.aap_integration.register_artifacts | default(true)
+  tags: ["aap_state", "artifacts"]
+
+- name: Update job and workflow state
+  include_tasks: update_job_state.yml
+  vars:
+    aap_job_update_operation: "{{ aap_state_current_operation }}"
+    aap_job_update_context: "{{ aap_state_component_context }}"
+  when: aap_state_manager.job_state_management.enabled | default(true)
+  tags: ["aap_state", "job_management"]
+
+- name: Manage execution environment state
+  include_tasks: manage_execution_environment.yml
+  vars:
+    aap_ee_operation: "{{ aap_state_current_operation }}"
+    aap_ee_context: "{{ aap_state_component_context }}"
+  when: aap_state_manager.execution_environment.management_enabled | default(true)
+  tags: ["aap_state", "execution_environment"]
+
+- name: Calculate AAP state operation statistics
+  set_fact:
+    aap_state_operation_end: "{{ ansible_date_time.iso8601 }}"
+    aap_state_operation_execution_time: "{{ ((ansible_date_time.epoch | float) - (aap_state_operation_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+  tags: ["aap_state", "statistics"]
+
+- name: Update AAP state operation data with results
+  set_fact:
+    aap_state_operation_data: "{{ aap_state_operation_data | combine({
+      'end_time': aap_state_operation_end,
+      'status': 'completed',
+      'execution_time': aap_state_operation_execution_time,
+      'state_updates': aap_state_updates_count | default(0),
+      'artifacts_registered': aap_artifacts_count | default(0),
+      'metrics_sent': aap_metrics_count | default(0),
+      'platform_status': aap_platform_status | default('unknown'),
+      'integration_status': aap_integration_status | default('unknown')
+    }) }}"
+  tags: ["aap_state", "operation"]
+
+- name: Add operation to AAP state session operations list
+  set_fact:
+    aap_state_operations: "{{ aap_state_operations + [aap_state_operation_data] }}"
+  tags: ["aap_state", "session"]
+
+- name: Update AAP state session statistics
+  set_fact:
+    aap_state_session_statistics: "{{ aap_state_session_statistics | combine({
+      'total_operations': (aap_state_session_statistics.total_operations | default(0)) + 1,
+      'successful_operations': (aap_state_session_statistics.successful_operations | default(0)) + (1 if aap_state_operation_data.status == 'completed' else 0),
+      'failed_operations': (aap_state_session_statistics.failed_operations | default(0)) + (1 if aap_state_operation_data.status == 'failed' else 0),
+      'state_updates': (aap_state_session_statistics.state_updates | default(0)) + (aap_state_operation_data.state_updates | default(0)),
+      'artifacts_registered': (aap_state_session_statistics.artifacts_registered | default(0)) + (aap_state_operation_data.artifacts_registered | default(0)),
+      'metrics_sent': (aap_state_session_statistics.metrics_sent | default(0)) + (aap_state_operation_data.metrics_sent | default(0))
+    }) }}"
+  tags: ["aap_state", "session"]
+
+- name: Create comprehensive AAP state session data
+  set_fact:
+    aap_state_session_data: "{{ aap_state_output_data.session_template | combine({
+      'session_id': aap_state_session_id,
+      'session_start': aap_state_session_start,
+      'session_end': ansible_date_time.iso8601,
+      'session_status': 'completed',
+      'operations': aap_state_operations,
+      'session_statistics': aap_state_session_statistics,
+      'aap_context': {
+        'platform_version': aap_platform_info.version | default('unknown'),
+        'controller_version': aap_platform_info.controller_version | default('unknown'),
+        'execution_environment': aap_integration_context.aap_execution_environment | default('default'),
+        'organization': aap_integration_context.aap_organization | default(''),
+        'project': aap_integration_context.aap_project | default(''),
+        'inventory': aap_integration_context.aap_inventory | default('')
+      },
+      'integration_context': {
+        'call_stack_session_id': aap_integration_context.call_stack_session_id | default(''),
+        'retry_session_id': aap_integration_context.retry_session_id | default(''),
+        'output_session_id': aap_integration_context.output_session_id | default(''),
+        'idempotency_session_id': aap_integration_context.idempotency_session_id | default('')
+      }
+    }) }}"
+  tags: ["aap_state", "session"]
+
+- name: Write AAP state session data to file
+  copy:
+    content: "{{ aap_state_session_data | to_nice_json(indent=2) }}"
+    dest: "{{ aap_state_manager.output_directory }}/{{ aap_state_session_id }}/aap_state_session_{{ aap_state_session_id }}.json"
+    mode: "{{ aap_state_manager.security.file_permissions | default('0644') }}"
+  when: aap_state_manager.file_output_enabled | default(true)
+  tags: ["aap_state", "filesystem"]
+
+- name: Register AAP state session data as AAP artifact
+  set_stats:
+    data:
+      aap_state_session_id: "{{ aap_state_session_id }}"
+      aap_state_session_data: "{{ aap_state_session_data }}"
+      aap_state_session_statistics: "{{ aap_state_session_statistics }}"
+      aap_state_operations_summary: "{{ aap_state_operations | map(attribute='operation_name') | list }}"
+      aap_state_platform_status: "{{ aap_platform_status | default('unknown') }}"
+      aap_state_integration_status: "{{ aap_integration_status | default('unknown') }}"
+  when: aap_state_manager.aap_integration.register_session_data | default(true)
+  tags: ["aap_state", "artifacts"]
+
+- name: Send AAP state metrics to external monitoring systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default(omit) }}"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ aap_state_session_id }}"
+      component: "aap_state_manager"
+      metrics:
+        total_operations: "{{ aap_state_session_statistics.total_operations | default(0) }}"
+        successful_operations: "{{ aap_state_session_statistics.successful_operations | default(0) }}"
+        failed_operations: "{{ aap_state_session_statistics.failed_operations | default(0) }}"
+        state_updates: "{{ aap_state_session_statistics.state_updates | default(0) }}"
+        artifacts_registered: "{{ aap_state_session_statistics.artifacts_registered | default(0) }}"
+        metrics_sent: "{{ aap_state_session_statistics.metrics_sent | default(0) }}"
+        execution_time: "{{ aap_state_session_statistics.execution_time | default(0) }}"
+        success_rate: "{{ ((aap_state_session_statistics.successful_operations | default(0) | float) / (aap_state_session_statistics.total_operations | default(1) | float) * 100) | round(2) }}"
+      aap_context:
+        job_id: "{{ aap_integration_context.aap_job_id | default('') }}"
+        workflow_id: "{{ aap_integration_context.aap_workflow_id | default('') }}"
+        platform_version: "{{ aap_platform_info.version | default('unknown') }}"
+        controller_version: "{{ aap_platform_info.controller_version | default('unknown') }}"
+      integration_context:
+        call_stack_session_id: "{{ aap_integration_context.call_stack_session_id | default('') }}"
+        retry_session_id: "{{ aap_integration_context.retry_session_id | default('') }}"
+        output_session_id: "{{ aap_integration_context.output_session_id | default('') }}"
+        idempotency_session_id: "{{ aap_integration_context.idempotency_session_id | default('') }}"
+    timeout: "{{ item.timeout | default(30) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ aap_state_manager.external_systems | default([]) }}"
+  when:
+    - aap_state_manager.external_integration | default(false)
+    - item.enabled | default(true)
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_external | default(true) }}"
+  notify: "send aap state metrics to external systems"
+  tags: ["aap_state", "external_integration"]
+
+- name: Update AAP state session status to completed
+  set_fact:
+    aap_state_session_status: "completed"
+    aap_state_session_end: "{{ ansible_date_time.iso8601 }}"
+    aap_state_session_execution_time: "{{ ((ansible_date_time.epoch | float) - (aap_state_session_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+  tags: ["aap_state", "session"]
+
+- name: Display AAP state management summary
+  debug:
+    msg:
+      - "AAP State Management Session Summary:"
+      - "Session ID: {{ aap_state_session_id }}"
+      - "Status: {{ aap_state_session_status }}"
+      - "Operations Processed: {{ aap_state_session_statistics.total_operations | default(0) }}"
+      - "Successful Operations: {{ aap_state_session_statistics.successful_operations | default(0) }}"
+      - "Failed Operations: {{ aap_state_session_statistics.failed_operations | default(0) }}"
+      - "State Updates: {{ aap_state_session_statistics.state_updates | default(0) }}"
+      - "Artifacts Registered: {{ aap_state_session_statistics.artifacts_registered | default(0) }}"
+      - "Metrics Sent: {{ aap_state_session_statistics.metrics_sent | default(0) }}"
+      - "Execution Time: {{ aap_state_session_execution_time }}s"
+      - "Success Rate: {{ ((aap_state_session_statistics.successful_operations | default(0) | float) / (aap_state_session_statistics.total_operations | default(1) | float) * 100) | round(2) }}%"
+      - "Platform Status: {{ aap_platform_status | default('unknown') }}"
+      - "Integration Status: {{ aap_integration_status | default('unknown') }}"
+  when: aap_state_manager.display_summary | default(true)
+  tags: ["aap_state", "summary"]
+
+- name: Trigger AAP state completion handlers
+  command: /bin/true
+  notify:
+    - "complete aap state session"
+    - "update call stack with aap state results"
+    - "trigger output manager for aap state results"
+  changed_when: false
+  tags: ["aap_state", "handlers"]
+
+- name: Handle AAP state operation failure
+  block:
+    - name: Set operation failure status
+      set_fact:
+        aap_state_operation_data: "{{ aap_state_operation_data | combine({'status': 'failed', 'error_message': ansible_failed_result.msg | default('Unknown error')}) }}"
+        aap_state_session_status: "failed"
+        
+    - name: Trigger failure handlers
+      command: /bin/true
+      notify:
+        - "cleanup aap state session on error"
+        - "send aap state alerts to external systems"
+      changed_when: false
+      
+    - name: Fail the operation
+      fail:
+        msg: "AAP state management operation failed: {{ ansible_failed_result.msg | default('Unknown error') }}"
+        
+  rescue:
+    - name: Log AAP state management failure
+      debug:
+        msg: "AAP state management failed for operation: {{ aap_state_current_operation | default('unknown') }}"
+        
+  when: aap_state_operation_failed | default(false)
+  tags: ["aap_state", "error_handling"]

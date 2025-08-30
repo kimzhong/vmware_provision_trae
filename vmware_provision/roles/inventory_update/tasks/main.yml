@@ -1,0 +1,95 @@
+---
+################################################################################
+# Inventory Update Role
+#
+# This role manages the AAP inventory updates:
+# - Adds new VMs to inventory
+# - Updates host variables
+# - Manages group assignments
+# - Validates inventory entries
+#
+# Supports dynamic inventory management and custom variables
+################################################################################
+
+############################################################################
+# Inventory Addition
+# Adds the new VM to AAP inventory with appropriate variables
+############################################################################
+- name: Get VM information for inventory
+  vmware_guest_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+  register: vm_info
+
+- name: Create host variables
+  set_fact:
+    host_vars:
+      ansible_host: "{{ vm_info.instance.ipv4 }}"
+      ansible_port: "{{ '5986' if vm_os starts_with('windows') else '22' }}"
+      ansible_connection: "{{ 'winrm' if vm_os starts_with('windows') else 'ssh' }}"
+      os_type: "{{ vm_os }}"
+      environment: "{{ env }}"
+      datacenter: "{{ datacenter }}"
+      vm_name: "{{ vm_name }}"
+      vm_folder: "{{ vm_folder }}"
+      vm_template: "{{ templates[vm_os].template_name }}"
+      creation_date: "{{ ansible_date_time.iso8601 }}"
+
+############################################################################
+# AAP Inventory Update
+# Updates the AAP inventory with the new host
+############################################################################
+- name: Add host to AAP inventory
+  tower_host:
+    name: "{{ vm_name }}"
+    inventory: "{{ aap_inventory.name }}"
+    variables: "{{ host_vars | to_json }}"
+    state: present
+  register: inventory_update
+
+- name: Add host to appropriate groups
+  tower_group:
+    name: "{{ item }}"
+    inventory: "{{ aap_inventory.name }}"
+    hosts:
+      - "{{ vm_name }}"
+    state: present
+  loop:
+    - "{{ env | upper }}"
+    - "{{ vm_os | upper }}"
+    - "{{ location | upper }}"
+  register: group_update
+
+############################################################################
+# State Update
+# Updates the state tracking with inventory status
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "inventory_updated",
+        "steps_completed": {{ (lookup('file', state_file) | from_json).steps_completed + ['inventory_update'] | to_json }},
+        "current_step": "complete",
+        "inventory_details": {
+          "inventory_name": "{{ aap_inventory.name }}",
+          "groups": ["{{ env | upper }}", "{{ vm_os | upper }}", "{{ location | upper }}"],
+          "host_vars": {{ host_vars | to_json }}
+        }
+      }
+    dest: "{{ state_file }}"
+  when: inventory_update is success
+
+############################################################################
+# AAP Integration
+# Updates AAP with inventory update status
+############################################################################
+- name: Set inventory update stats
+  set_stats:
+    data:
+      inventory_update_status: "{{ inventory_update }}"
+      inventory_update_time: "{{ ansible_date_time.iso8601 }}"
+    aggregate: yes

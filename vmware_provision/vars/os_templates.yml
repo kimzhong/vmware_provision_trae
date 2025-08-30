@@ -1,0 +1,42 @@
+---
+# OS Template definitions
+templates:
+  windows2019:
+    template_name: "template-windows2019-latest"
+    guest_id: windows9Server64Guest
+    customization:
+      hostname: "{{ vm_name }}"
+      domain: "{{ domain }}"
+      dns_servers: "{{ dns_servers }}"
+
+  windows2022:
+    template_name: "template-windows2022-latest"
+    guest_id: windows9Server64Guest
+    customization:
+      hostname: "{{ vm_name }}"
+      domain: "{{ domain }}"
+      dns_servers: "{{ dns_servers }}"
+
+  suse15:
+    template_name: "template-suse15-latest"
+    guest_id: sles15_64Guest
+    customization:
+      hostname: "{{ vm_name }}"
+      domain: "{{ domain }}"
+      dns_servers: "{{ dns_servers }}"
+
+  rhel8:
+    template_name: "template-rhel8-latest"
+    guest_id: rhel8_64Guest
+    customization:
+      hostname: "{{ vm_name }}"
+      domain: "{{ domain }}"
+      dns_servers: "{{ dns_servers }}"
+
+  rhel9:
+    template_name: "template-rhel9-latest"
+    guest_id: rhel9_64Guest
+    customization:
+      hostname: "{{ vm_name }}"
+      domain: "{{ domain }}"
+      dns_servers: "{{ dns_servers }}"

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+################################################################################
+# Output Manager XML Template
+#
+# This template generates XML formatted output for the output manager role.
+# It provides structured XML output with proper schema validation and
+# human-readable formatting.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Generated: {{ ansible_date_time.iso8601 }}
+################################################################################
+-->
+
+<ansible_output xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <metadata>
+    <session_id>{{ output_session_id | default('unknown') }}</session_id>
+    <timestamp>{{ ansible_date_time.iso8601 }}</timestamp>
+    <component>{{ output_current_component | default('output_manager') }}</component>
+    <ansible_version>{{ ansible_version.full | default('unknown') }}</ansible_version>
+    <controller_host>{{ inventory_hostname | default('unknown') }}</controller_host>
+    <execution_user>{{ ansible_user_id | default('unknown') }}</execution_user>
+    {% if call_stack_session_id is defined %}
+    <call_stack_session_id>{{ call_stack_session_id }}</call_stack_session_id>
+    {% endif %}
+    {% if call_chain_id is defined %}
+    <call_chain_id>{{ call_chain_id }}</call_chain_id>
+    {% endif %}
+  </metadata>
+  
+  <deployment_context>
+    <environment>{{ env | default('unknown') }}</environment>
+    <location>{{ location | default('unknown') }}</location>
+    <vm_os>{{ vm_os | default('unknown') }}</vm_os>
+    <domain>{{ domain | default('unknown') }}</domain>
+  </deployment_context>
+  
+  <output_info>
+    <status>{{ output_data.status | default('unknown') }}</status>
+    <total_outputs>{{ output_data.outputs | length | default(0) }}</total_outputs>
+    <total_size_bytes>{{ output_data.outputs | map(attribute='size_bytes') | list | sum | default(0) }}</total_size_bytes>
+    <formats_enabled>
+      {% for format_name, format_config in output_manager.formats.items() %}
+      {% if format_config.enabled | default(false) %}
+      <format>{{ format_name }}</format>
+      {% endif %}
+      {% endfor %}
+    </formats_enabled>
+  </output_info>
+  
+  <outputs>
+    {% for output_item in output_data.outputs | default([]) %}
+    <output>
+      <component>{{ output_item.component | default('unknown') }}</component>
+      <timestamp>{{ output_item.timestamp | default('unknown') }}</timestamp>
+      <format>{{ output_item.format | default('json') }}</format>
+      <status>{{ output_item.status | default('unknown') }}</status>
+      <size_bytes>{{ output_item.size_bytes | default(0) }}</size_bytes>
+      <validation_status>{{ output_item.validation_status | default('unknown') }}</validation_status>
+      
+      {% if output_item.data is defined and output_item.data %}
+      <data>
+        {% if output_item.data is mapping %}
+        {% for key, value in output_item.data.items() %}
+        <{{ key }}>
+          {% if value is mapping %}
+          {% for sub_key, sub_value in value.items() %}
+          <{{ sub_key }}>{{ sub_value | string | e }}</{{ sub_key }}>
+          {% endfor %}
+          {% elif value is iterable and value is not string %}
+          {% for item in value %}
+          <item>{{ item | string | e }}</item>
+          {% endfor %}
+          {% else %}
+          {{ value | string | e }}
+          {% endif %}
+        </{{ key }}>
+        {% endfor %}
+        {% elif output_item.data is iterable and output_item.data is not string %}
+        {% for item in output_item.data %}
+        <item>
+          {% if item is mapping %}
+          {% for key, value in item.items() %}
+          <{{ key }}>{{ value | string | e }}</{{ key }}>
+          {% endfor %}
+          {% else %}
+          {{ item | string | e }}
+          {% endif %}
+        </item>
+        {% endfor %}
+        {% else %}
+        <value>{{ output_item.data | string | e }}</value>
+        {% endif %}
+      </data>
+      {% endif %}
+    </output>
+    {% endfor %}
+  </outputs>
+  
+  {% if output_manager.validation.enabled | default(true) %}
+  <validation>
+    <enabled>{{ output_manager.validation.enabled | default(true) }}</enabled>
+    <json_validation>{{ output_manager.validation.validate_json | default(true) }}</json_validation>
+    <yaml_validation>{{ output_manager.validation.validate_yaml | default(true) }}</yaml_validation>
+    <xml_validation>{{ output_manager.validation.validate_xml | default(true) }}</xml_validation>
+    <max_size_bytes>{{ output_manager.validation.max_size_bytes | default(10485760) }}</max_size_bytes>
+    <fail_on_error>{{ output_manager.validation.fail_on_validation_error | default(false) }}</fail_on_error>
+  </validation>
+  {% endif %}
+  
+  {% if output_manager.sanitization.enabled | default(true) %}
+  <sanitization>
+    <enabled>{{ output_manager.sanitization.enabled | default(true) }}</enabled>
+    <redacted_fields>
+      {% for field in output_manager.sanitization.redact_fields | default([]) %}
+      <field>{{ field }}</field>
+      {% endfor %}
+    </redacted_fields>
+    <redaction_text>{{ output_manager.sanitization.redaction_text | default('[REDACTED]') }}</redaction_text>
+  </sanitization>
+  {% endif %}
+  
+  {% if output_manager.external_integration | default(false) and output_manager.external_systems | default([]) | length > 0 %}
+  <external_systems>
+    {% for system in output_manager.external_systems %}
+    {% if system.enabled | default(true) %}
+    <system>
+      <name>{{ system.name | default('unknown') }}</name>
+      <url>{{ system.url | default('') }}</url>
+      <method>{{ system.method | default('POST') }}</method>
+      <timeout>{{ system.timeout | default(30) }}</timeout>
+      <retry_count>{{ system.retry_count | default(3) }}</retry_count>
+      <retry_delay>{{ system.retry_delay | default(5) }}</retry_delay>
+    </system>
+    {% endif %}
+    {% endfor %}
+  </external_systems>
+  {% endif %}
+  
+  <generation_info>
+    <template_version>2.0</template_version>
+    <generated_by>output_manager</generated_by>
+    <generation_timestamp>{{ ansible_date_time.iso8601 }}</generation_timestamp>
+    <template_file>output.xml.j2</template_file>
+  </generation_info>
+</ansible_output>

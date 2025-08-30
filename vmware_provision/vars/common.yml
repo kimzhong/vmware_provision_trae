@@ -1,0 +1,103 @@
+---
+################################################################################
+# Common Variables for All Environments
+################################################################################
+
+# vCenter Connection Details
+vcenter:
+  hostname: "{{ vcenter_host }}"
+  username: "{{ vcenter_username }}"
+  password: "{{ vcenter_password }}"
+  validate_certs: false
+
+# VM Default Specifications
+vm_defaults:
+  cpu: 2
+  memory_mb: 4096
+  disk_gb: 100
+  network_type: vmxnet3
+
+# VM Naming Pattern
+vm_name_pattern: "{{ env }}-{{ location }}-{{ vm_os }}-{{ vm_purpose }}-{{ '%03d' | format(sequence_number | int) }}"
+
+# Default DNS Servers
+dns_servers:
+  primary: "{{ env_defaults[env].dns.primary }}"
+  secondary: "{{ env_defaults[env].dns.secondary }}"
+
+# Environment Defaults
+env_defaults:
+  dev:
+    dns:
+      primary: "10.0.0.2"
+      secondary: "10.0.0.3"
+    subnet: "10.0.0.0/24"
+    gateway: "10.0.0.1"
+  sit:
+    dns:
+      primary: "10.1.0.2"
+      secondary: "10.1.0.3"
+    subnet: "10.1.0.0/24"
+    gateway: "10.1.0.1"
+  uat:
+    dns:
+      primary: "10.2.0.2"
+      secondary: "10.2.0.3"
+    subnet: "10.2.0.0/24"
+    gateway: "10.2.0.1"
+  prod:
+    dns:
+      primary: "10.3.0.2"
+      secondary: "10.3.0.3"
+    subnet: "10.3.0.0/24"
+    gateway: "10.3.0.1"
+
+# Resource Pools
+resource_pools:
+  dev: "DEV-RP"
+  sit: "SIT-RP"
+  uat: "UAT-RP"
+  prod: "PROD-RP"
+
+# Network Security Groups
+security_groups:
+  dev:
+    - name: "DEV-DEFAULT-SG"
+      rules:
+        - direction: inbound
+          port_range: "22,3389"
+          source: "{{ env_defaults.dev.subnet }}"
+  sit:
+    - name: "SIT-DEFAULT-SG"
+      rules:
+        - direction: inbound
+          port_range: "22,3389"
+          source: "{{ env_defaults.sit.subnet }}"
+  uat:
+    - name: "UAT-DEFAULT-SG"
+      rules:
+        - direction: inbound
+          port_range: "22,3389"
+          source: "{{ env_defaults.uat.subnet }}"
+  prod:
+    - name: "PROD-DEFAULT-SG"
+      rules:
+        - direction: inbound
+          port_range: "22,3389"
+          source: "{{ env_defaults.prod.subnet }}"
+
+# Retry Settings
+retry_max: 3
+retry_delay: 30
+
+# State Management
+state_file: "/tmp/vm_provision_state_{{ env }}_{{ location }}_{{ vm_name }}.json"
+
+# AAP Integration
+aap:
+  organization: "Default"
+  inventory_name: "vmware_inventory_{{ env }}"
+  credential_types:
+    - "VMware vCenter"
+    - "Machine"
+    - "Network"

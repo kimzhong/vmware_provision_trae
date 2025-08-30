@@ -1,0 +1,90 @@
+---
+################################################################################
+# Main playbook for VMware VM provisioning
+#
+# This playbook orchestrates the entire VM provisioning process including:
+# - VM creation from template
+# - Network configuration
+# - Disk configuration
+# - Inventory management
+# - Status tracking
+#
+# Usage:
+#   ansible-playbook site.yml -e "env=dev location=dc1 domain=example.com vm_os=windows2022"
+#
+# Tags available:
+#   - always: Pre-flight checks and state validation
+#   - vm: VM provisioning tasks
+#   - network: Network configuration tasks
+#   - disk: Storage configuration tasks
+#   - inventory: AAP inventory management
+#   - status: Status tracking and reporting
+################################################################################
+
+- name: Provision VMware VMs
+  hosts: localhost
+  gather_facts: false
+
+  ############################################################################
+  # Variable files
+  # Loading order determines precedence:
+  # 1. Environment specific vars
+  # 2. Location specific vars
+  # 3. Common vars
+  # 4. OS template definitions
+  ############################################################################
+  vars_files:
+    - "vars/common.yml" # Common variables
+    - "vars/{{ env }}/main.yml" # Environment specific
+    - "vars/{{ env }}/{{ location }}/main.yml" # Location specific
+    - "vars/os_templates.yml" # OS template definitions
+
+  ############################################################################
+  # Interactive prompts for required variables
+  # These can be bypassed by providing values via -e parameter
+  ############################################################################
+  vars_prompt:
+    - name: env
+      prompt: "Enter environment (dev/sit/uat/prod)"
+      private: no
+
+    - name: location
+      prompt: "Enter location/datacenter"
+      private: no
+
+    - name: domain
+      prompt: "Enter domain"
+      private: no
+
+    - name: vm_os
+      prompt: "Enter OS type (windows2019/windows2022/suse15/rhel8/rhel9)"
+      private: no
+
+  ############################################################################
+  # Role execution sequence
+  # Each role is tagged for selective execution
+  ############################################################################
+  roles:
+    # Pre-flight and validation
+    - role: vmware_state_check
+      tags: ["always"]
+    - role: environment_validation
+      tags: ["always", "validation"]
+
+    # Network isolation and configuration
+    - role: vmware_network_isolation
+      tags: ["always", "network", "security"]
+    - role: vmware_network_config
+      tags: ["network"]
+
+    # VM provisioning and configuration
+    - role: vmware_vm_provision
+      tags: ["vm"]
+    - role: vmware_disk_config
+      tags: ["disk"]
+
+    # Post-deployment tasks
+    - role: inventory_update
+      tags: ["inventory"]
+    - role: status_tracking
+      tags: ["status"]

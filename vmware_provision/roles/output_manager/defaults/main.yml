@@ -1,0 +1,269 @@
+---
+################################################################################
+# Output Manager Role - Default Variables
+#
+# This file contains default configuration variables for the output manager.
+# These variables control output formatting, destinations, validation,
+# and integration with external systems and AAP artifacts.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+# Output Manager Configuration
+output_manager:
+  # Session ID prefix for generating unique output session identifiers
+  session_id_prefix: "output"
+  
+  # Enable/disable file output
+  file_output: true
+  
+  # Enable/disable AAP artifacts integration
+  artifacts_integration: true
+  
+  # Enable/disable external systems integration
+  external_integration: false
+  
+  # Output format configurations
+  formats:
+    # JSON format configuration
+    json:
+      enabled: true
+      pretty_print: true
+      include_metadata: true
+      output_dir: "/tmp/ansible_outputs"
+      file_extension: ".json"
+      compression: false
+    
+    # YAML format configuration
+    yaml:
+      enabled: false
+      include_comments: true
+      output_dir: "/tmp/ansible_outputs"
+      file_extension: ".yml"
+      flow_style: false
+    
+    # XML format configuration
+    xml:
+      enabled: false
+      include_schema: true
+      output_dir: "/tmp/ansible_outputs"
+      file_extension: ".xml"
+      pretty_print: true
+    
+    # CSV format configuration
+    csv:
+      enabled: false
+      include_headers: true
+      delimiter: ","
+      output_dir: "/tmp/ansible_outputs"
+      file_extension: ".csv"
+  
+  # Data sanitization settings
+  sanitization:
+    enabled: true
+    # Regex patterns for sensitive data
+    password_pattern: "(password|passwd|pwd|secret|key|token)\\s*[:=]\\s*[^\\s]+"
+    # Fields to redact
+    redact_fields:
+      - "password"
+      - "secret"
+      - "token"
+      - "key"
+      - "credential"
+    # Replacement text for redacted fields
+    redaction_text: "[REDACTED]"
+  
+  # Output validation settings
+  validation:
+    enabled: true
+    # Validate JSON syntax
+    validate_json: true
+    # Validate YAML syntax
+    validate_yaml: true
+    # Validate XML syntax
+    validate_xml: true
+    # Maximum output size in bytes
+    max_size_bytes: 10485760  # 10MB
+    # Fail on validation errors
+    fail_on_validation_error: false
+  
+  # Output retention settings
+  retention:
+    # Keep output files for specified days
+    days: 30
+    # Enable automatic cleanup of old output files
+    auto_cleanup: true
+    # Maximum number of output files to keep per component
+    max_files_per_component: 100
+  
+  # Performance settings
+  performance:
+    # Enable compression for large outputs
+    enable_compression: false
+    # Compression threshold in bytes
+    compression_threshold: 1048576  # 1MB
+    # Enable async output processing
+    async_processing: false
+    # Batch size for bulk operations
+    batch_size: 50
+  
+  # Integration settings
+  integration:
+    # Enable integration with call_stack_manager
+    call_stack_manager: true
+    # Enable integration with retry_manager
+    retry_manager: true
+    # Enable integration with idempotency_checker
+    idempotency_checker: true
+    # Enable integration with aap_state_manager
+    aap_state_manager: true
+  
+  # External systems configuration
+  external_systems: []
+    # Example external system configuration:
+    # - name: "monitoring_system"
+    #   url: "https://monitoring.example.com/api/data"
+    #   method: "POST"
+    #   auth_header: "Bearer your-token-here"
+    #   timeout: 30
+    #   enabled: true
+    #   retry_count: 3
+    #   retry_delay: 5
+  
+  # Error handling settings
+  error_handling:
+    # Continue execution on output errors
+    continue_on_error: true
+    # Log output errors to separate file
+    log_errors: true
+    # Error log file path
+    error_log_file: "/tmp/output_manager_errors.log"
+    # Maximum number of retry attempts for failed outputs
+    max_retry_attempts: 3
+    # Delay between retry attempts (seconds)
+    retry_delay: 5
+
+# Current output context variables (set by calling roles)
+output_current_component: "output_manager"
+output_current_data: {}
+output_current_format: "json"
+
+# Output session variables (initialized by the role)
+output_session_id: ""
+output_manager_initialized: false
+output_session_active: false
+last_output_session_id: ""
+
+# Output data structure (initialized by the role)
+output_data: {}
+
+# Output templates configuration
+output_templates:
+  # Standard deployment output template
+  deployment:
+    include_fields:
+      - "session_id"
+      - "timestamp"
+      - "component"
+      - "deployment_context"
+      - "status"
+      - "outputs"
+    exclude_fields:
+      - "metadata.internal"
+  
+  # Summary output template
+  summary:
+    include_fields:
+      - "session_id"
+      - "component"
+      - "status"
+      - "total_outputs"
+    format: "json"
+  
+  # Error output template
+  error:
+    include_fields:
+      - "session_id"
+      - "timestamp"
+      - "component"
+      - "error_details"
+      - "call_stack_info"
+    format: "json"
+    priority: "high"
+
+# Output formatting options
+formatting_options:
+  # JSON formatting
+  json:
+    indent: 2
+    sort_keys: true
+    ensure_ascii: false
+    separators: [",", ": "]
+  
+  # YAML formatting
+  yaml:
+    default_flow_style: false
+    indent: 2
+    width: 120
+    allow_unicode: true
+  
+  # XML formatting
+  xml:
+    encoding: "UTF-8"
+    standalone: true
+    indent: "  "
+    newline: "\n"
+
+# Output monitoring and metrics
+monitoring:
+  # Enable output metrics collection
+  enabled: false
+  # Metrics collection interval (seconds)
+  collection_interval: 60
+  # Metrics output file
+  metrics_file: "/tmp/output_manager_metrics.json"
+  # Track the following metrics
+  track_metrics:
+    - "output_count"
+    - "output_size"
+    - "processing_time"
+    - "validation_errors"
+    - "external_system_responses"
+
+# Output security settings
+security:
+  # Enable output encryption
+  encryption:
+    enabled: false
+    algorithm: "AES-256-GCM"
+    key_file: "/etc/ansible/output_encryption.key"
+  
+  # File permissions for output files
+  file_permissions:
+    mode: "0644"
+    owner: "ansible"
+    group: "ansible"
+  
+  # Access control
+  access_control:
+    # Restrict output access to specific users
+    restricted_access: false
+    # Allowed users list
+    allowed_users: []
+    # Allowed groups list
+    allowed_groups: []
+
+# Output archiving settings
+archiving:
+  # Enable output archiving
+  enabled: false
+  # Archive format (tar, zip, gzip)
+  format: "tar.gz"
+  # Archive directory
+  archive_dir: "/var/lib/ansible/archives"
+  # Archive retention period (days)
+  retention_days: 365
+  # Compression level (1-9)
+  compression_level: 6

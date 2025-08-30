@@ -1,0 +1,333 @@
+---
+# Idempotency Checker Role - Handlers
+# This file contains handlers for the idempotency checker role
+# Handlers are triggered by notify statements in tasks
+
+# Session management handlers
+- name: complete idempotency session
+  debug:
+    msg: "Idempotency session {{ idempotency_session_id }} completed with status: {{ idempotency_session_status }}"
+  when: idempotency_session_id is defined
+  
+- name: cleanup idempotency session on error
+  block:
+    - name: Remove incomplete session files
+      file:
+        path: "{{ idempotency_checker.output_directory }}/{{ idempotency_session_id }}"
+        state: absent
+      when: 
+        - idempotency_session_id is defined
+        - idempotency_checker.retention.cleanup_on_completion | default(false)
+        
+    - name: Release operation locks
+      file:
+        path: "{{ idempotency_checker.lock_directory }}/{{ item }}.lock"
+        state: absent
+      loop: "{{ idempotency_active_locks | default([]) }}"
+      ignore_errors: true
+      
+  rescue:
+    - name: Log cleanup errors
+      debug:
+        msg: "Warning: Failed to cleanup idempotency session {{ idempotency_session_id }}: {{ ansible_failed_result.msg }}"
+        
+# File management handlers
+- name: compress idempotency files
+  archive:
+    path: "{{ idempotency_checker.output_directory }}/{{ idempotency_session_id }}"
+    dest: "{{ idempotency_checker.output_directory }}/{{ idempotency_session_id }}.tar.gz"
+    format: gz
+    remove: true
+  when:
+    - idempotency_session_id is defined
+    - idempotency_checker.compress_large_files | default(true)
+    - idempotency_session_file_size_mb | default(0) > (idempotency_checker.file_size_threshold_mb | default(10))
+    
+- name: cleanup old idempotency files
+  find:
+    paths: "{{ idempotency_checker.output_directory }}"
+    age: "{{ idempotency_checker.retention.max_age_days | default(7) }}d"
+    patterns:
+      - "idempotency_*.json"
+      - "idempotency_*.tar.gz"
+  register: old_idempotency_files
+  
+- name: remove old idempotency files
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ old_idempotency_files.files | default([]) }}"
+  when: 
+    - idempotency_checker.retention.enabled | default(true)
+    - old_idempotency_files.files is defined
+    
+- name: archive old idempotency files
+  block:
+    - name: Create archive directory
+      file:
+        path: "{{ idempotency_checker.retention.archive_directory }}"
+        state: directory
+        mode: "{{ idempotency_checker.security.directory_permissions | default('0755') }}"
+        
+    - name: Move old files to archive
+      command: >
+        mv "{{ item.path }}" 
+        "{{ idempotency_checker.retention.archive_directory }}/{{ item.path | basename }}"
+      loop: "{{ old_idempotency_files.files | default([]) }}"
+      when: old_idempotency_files.files is defined
+      
+  when:
+    - idempotency_checker.retention.archive_old_files | default(true)
+    - old_idempotency_files.files is defined
+    - old_idempotency_files.files | length > 0
+    
+# External integration handlers
+- name: send idempotency metrics to external systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default(omit) }}"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ idempotency_session_id }}"
+      component: "idempotency_checker"
+      metrics:
+        total_operations: "{{ idempotency_session_statistics.total_operations | default(0) }}"
+        safe_operations: "{{ idempotency_session_statistics.safe_operations | default(0) }}"
+        unsafe_operations: "{{ idempotency_session_statistics.unsafe_operations | default(0) }}"
+        idempotent_operations: "{{ idempotency_session_statistics.idempotent_operations | default(0) }}"
+        total_checks: "{{ idempotency_session_statistics.total_checks | default(0) }}"
+        passed_checks: "{{ idempotency_session_statistics.passed_checks | default(0) }}"
+        failed_checks: "{{ idempotency_session_statistics.failed_checks | default(0) }}"
+        execution_time: "{{ idempotency_session_statistics.execution_time | default(0) }}"
+        success_rate: "{{ ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) | round(2) }}"
+        safety_rate: "{{ ((idempotency_session_statistics.safe_operations | default(0) | float) / (idempotency_session_statistics.total_operations | default(1) | float) * 100) | round(2) }}"
+      context:
+        call_stack_session_id: "{{ idempotency_integration_context.call_stack_session_id | default('') }}"
+        retry_session_id: "{{ idempotency_integration_context.retry_session_id | default('') }}"
+        output_session_id: "{{ idempotency_integration_context.output_session_id | default('') }}"
+        aap_job_id: "{{ idempotency_integration_context.aap_job_id | default('') }}"
+    timeout: "{{ item.timeout | default(30) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ idempotency_checker.external_systems | default([]) }}"
+  when:
+    - idempotency_checker.external_integration | default(false)
+    - item.enabled | default(true)
+    - idempotency_session_id is defined
+  ignore_errors: true
+  no_log: "{{ idempotency_checker.security.no_log_external | default(true) }}"
+  
+- name: send idempotency alerts to external systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default(omit) }}"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      alert_type: "idempotency_alert"
+      severity: "{{ idempotency_alert_severity | default('warning') }}"
+      session_id: "{{ idempotency_session_id }}"
+      component: "idempotency_checker"
+      message: "{{ idempotency_alert_message | default('Idempotency check alert') }}"
+      details:
+        unsafe_operations: "{{ idempotency_session_statistics.unsafe_operations | default(0) }}"
+        failed_checks: "{{ idempotency_session_statistics.failed_checks | default(0) }}"
+        success_rate: "{{ ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) | round(2) }}"
+        safety_rate: "{{ ((idempotency_session_statistics.safe_operations | default(0) | float) / (idempotency_session_statistics.total_operations | default(1) | float) * 100) | round(2) }}"
+      context:
+        call_stack_session_id: "{{ idempotency_integration_context.call_stack_session_id | default('') }}"
+        aap_job_id: "{{ idempotency_integration_context.aap_job_id | default('') }}"
+    timeout: "{{ item.timeout | default(15) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ idempotency_checker.external_systems | default([]) }}"
+  when:
+    - idempotency_checker.external_integration | default(false)
+    - item.enabled | default(true)
+    - idempotency_alert_triggered | default(false)
+    - idempotency_session_id is defined
+  ignore_errors: true
+  no_log: "{{ idempotency_checker.security.no_log_external | default(true) }}"
+  
+# Component integration handlers
+- name: update call stack with idempotency results
+  set_fact:
+    call_stack_component_result:
+      component: "idempotency_checker"
+      session_id: "{{ idempotency_session_id }}"
+      status: "{{ idempotency_session_status }}"
+      execution_time: "{{ idempotency_session_statistics.execution_time | default(0) }}"
+      operations_checked: "{{ idempotency_session_statistics.total_operations | default(0) }}"
+      safe_operations: "{{ idempotency_session_statistics.safe_operations | default(0) }}"
+      unsafe_operations: "{{ idempotency_session_statistics.unsafe_operations | default(0) }}"
+      success_rate: "{{ ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) | round(2) }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+  when:
+    - idempotency_checker.integration.call_stack_manager | default(true)
+    - idempotency_session_id is defined
+    
+- name: trigger output manager for idempotency results
+  set_fact:
+    output_manager_data:
+      component: "idempotency_checker"
+      session_id: "{{ idempotency_session_id }}"
+      data_type: "idempotency_results"
+      data: "{{ idempotency_session_data }}"
+      format: "json"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+  when:
+    - idempotency_checker.integration.output_manager | default(true)
+    - idempotency_session_id is defined
+    - idempotency_session_data is defined
+    
+- name: update aap state with idempotency status
+  set_fact:
+    aap_state_update:
+      component: "idempotency_checker"
+      session_id: "{{ idempotency_session_id }}"
+      status: "{{ idempotency_session_status }}"
+      safe_to_proceed: "{{ idempotency_session_statistics.unsafe_operations | default(0) == 0 }}"
+      operations_summary:
+        total: "{{ idempotency_session_statistics.total_operations | default(0) }}"
+        safe: "{{ idempotency_session_statistics.safe_operations | default(0) }}"
+        unsafe: "{{ idempotency_session_statistics.unsafe_operations | default(0) }}"
+        idempotent: "{{ idempotency_session_statistics.idempotent_operations | default(0) }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+  when:
+    - idempotency_checker.integration.aap_state_manager | default(true)
+    - idempotency_session_id is defined
+    
+# Monitoring and alerting handlers
+- name: trigger idempotency monitoring alerts
+  set_fact:
+    idempotency_alert_triggered: true
+    idempotency_alert_severity: >
+      {%- if idempotency_session_statistics.unsafe_operations | default(0) > 0 -%}
+      critical
+      {%- elif ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) < (idempotency_checker.monitoring.alerts.min_success_rate | default(95)) -%}
+      warning
+      {%- elif idempotency_session_statistics.execution_time | default(0) > (idempotency_checker.monitoring.alerts.max_average_check_time | default(60)) -%}
+      warning
+      {%- else -%}
+      info
+      {%- endif -%}
+    idempotency_alert_message: >
+      {%- if idempotency_session_statistics.unsafe_operations | default(0) > 0 -%}
+      Unsafe operations detected: {{ idempotency_session_statistics.unsafe_operations }} operations are not safe to execute
+      {%- elif ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) < (idempotency_checker.monitoring.alerts.min_success_rate | default(95)) -%}
+      Low success rate: {{ ((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) | round(2) }}% (threshold: {{ idempotency_checker.monitoring.alerts.min_success_rate | default(95) }}%)
+      {%- elif idempotency_session_statistics.execution_time | default(0) > (idempotency_checker.monitoring.alerts.max_average_check_time | default(60)) -%}
+      High execution time: {{ idempotency_session_statistics.execution_time }}s (threshold: {{ idempotency_checker.monitoring.alerts.max_average_check_time | default(60) }}s)
+      {%- else -%}
+      Idempotency check completed successfully
+      {%- endif -%}
+  when:
+    - idempotency_checker.monitoring.enabled | default(false)
+    - idempotency_session_id is defined
+    - idempotency_session_statistics is defined
+    - >
+      (idempotency_session_statistics.unsafe_operations | default(0) > 0) or
+      (((idempotency_session_statistics.passed_checks | default(0) | float) / (idempotency_session_statistics.total_checks | default(1) | float) * 100) < (idempotency_checker.monitoring.alerts.min_success_rate | default(95))) or
+      (idempotency_session_statistics.execution_time | default(0) > (idempotency_checker.monitoring.alerts.max_average_check_time | default(60)))
+      
+# Lock management handlers
+- name: release operation locks
+  file:
+    path: "{{ idempotency_checker.lock_directory }}/{{ item }}.lock"
+    state: absent
+  loop: "{{ idempotency_active_locks | default([]) }}"
+  ignore_errors: true
+  when: idempotency_active_locks is defined
+  
+- name: cleanup stale locks
+  find:
+    paths: "{{ idempotency_checker.lock_directory }}"
+    age: "{{ idempotency_checker.lock_timeout_minutes | default(30) }}m"
+    patterns: "*.lock"
+  register: stale_locks
+  
+- name: remove stale locks
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ stale_locks.files | default([]) }}"
+  when: 
+    - stale_locks.files is defined
+    - stale_locks.files | length > 0
+    
+# Performance optimization handlers
+- name: clear idempotency cache
+  file:
+    path: "{{ idempotency_checker.state_directory }}/cache"
+    state: absent
+  when:
+    - idempotency_checker.performance.cache_check_results | default(true)
+    - idempotency_clear_cache | default(false)
+    
+- name: optimize idempotency state files
+  block:
+    - name: Find large state files
+      find:
+        paths: "{{ idempotency_checker.state_directory }}"
+        size: "{{ idempotency_checker.file_size_threshold_mb | default(10) }}m"
+        patterns: "*.json"
+      register: large_state_files
+      
+    - name: Compress large state files
+      archive:
+        path: "{{ item.path }}"
+        dest: "{{ item.path }}.gz"
+        format: gz
+        remove: true
+      loop: "{{ large_state_files.files | default([]) }}"
+      when: large_state_files.files is defined
+      
+  when:
+    - idempotency_checker.performance.optimize_for_speed | default(false)
+    - idempotency_optimize_triggered | default(false)
+    
+# Error recovery handlers
+- name: recover from idempotency check failures
+  block:
+    - name: Reset failed operation status
+      set_fact:
+        idempotency_operation_status: "retry_pending"
+        idempotency_operation_safe_to_retry: true
+        
+    - name: Clear operation locks for retry
+      file:
+        path: "{{ idempotency_checker.lock_directory }}/{{ idempotency_current_operation }}.lock"
+        state: absent
+      when: idempotency_current_operation is defined
+      
+    - name: Log recovery action
+      debug:
+        msg: "Recovered from idempotency check failure for operation: {{ idempotency_current_operation | default('unknown') }}"
+        
+  when:
+    - idempotency_error_handling.retry_failed_checks | default(true)
+    - idempotency_operation_failed | default(false)
+    - idempotency_current_operation is defined
+    
+# Circuit breaker handlers
+- name: trigger idempotency circuit breaker
+  set_fact:
+    idempotency_circuit_breaker_open: true
+    idempotency_circuit_breaker_opened_at: "{{ ansible_date_time.epoch }}"
+  when:
+    - idempotency_advanced.circuit_breaker.enabled | default(false)
+    - idempotency_consecutive_failures | default(0) >= (idempotency_advanced.circuit_breaker.failure_threshold | default(5))
+    
+- name: reset idempotency circuit breaker
+  set_fact:
+    idempotency_circuit_breaker_open: false
+    idempotency_consecutive_failures: 0
+  when:
+    - idempotency_advanced.circuit_breaker.enabled | default(false)
+    - idempotency_circuit_breaker_open | default(false)
+    - (ansible_date_time.epoch | int) - (idempotency_circuit_breaker_opened_at | default(0) | int) > (idempotency_advanced.circuit_breaker.recovery_timeout_seconds | default(300))

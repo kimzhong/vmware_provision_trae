@@ -1,0 +1,455 @@
+---
+# Idempotency Checker - Perform Idempotency Checks
+# This file contains the core logic for performing various idempotency checks
+# It supports multiple check types and phases (pre-execution, post-execution)
+
+# Initialize check phase variables
+- name: Initialize check phase variables
+  set_fact:
+    current_check_phase: "{{ check_phase | default('pre_execution') }}"
+    phase_checks_performed: []
+    phase_start_time: "{{ ansible_date_time.iso8601 }}"
+  tags:
+    - idempotency
+    - check_initialization
+
+# Determine which checks to perform based on operation type and phase
+- name: Determine checks to perform
+  set_fact:
+    checks_to_perform: >
+      {%- set checks = [] -%}
+      {%- if current_check_phase == 'pre_execution' -%}
+        {%- set _ = checks.extend(['resource_existence', 'state_consistency', 'dependency_validation', 'conflict_detection']) -%}
+        {%- if idempotency_current_operation in ['vmware_vm_create', 'vmware_vm_provision'] -%}
+          {%- set _ = checks.extend(['vm_existence', 'template_availability', 'datastore_capacity', 'network_availability']) -%}
+        {%- elif idempotency_current_operation in ['network_configuration', 'network_setup'] -%}
+          {%- set _ = checks.extend(['network_existence', 'vlan_availability', 'ip_address_availability']) -%}
+        {%- elif idempotency_current_operation in ['storage_configuration', 'storage_setup'] -%}
+          {%- set _ = checks.extend(['datastore_existence', 'storage_capacity', 'lun_availability']) -%}
+        {%- endif -%}
+      {%- elif current_check_phase == 'post_execution' -%}
+        {%- set _ = checks.extend(['operation_success', 'state_verification', 'resource_validation']) -%}
+      {%- endif -%}
+      {{ checks }}
+  tags:
+    - idempotency
+    - check_planning
+
+# Perform resource existence check
+- name: Perform resource existence check
+  block:
+    - name: Check if target resource already exists
+      set_fact:
+        resource_existence_check:
+          check_id: "resource_existence_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "resource_existence"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          resource_type: "{{ idempotency_component_context.resource_type | default('unknown') }}"
+          resource_identifier: "{{ idempotency_component_context.vm_name | default(idempotency_component_context.resource_name) | default('unknown') }}"
+          status: "checking"
+          result: false
+          message: "Checking resource existence"
+          severity: "info"
+          execution_time: 0
+    
+    # VMware VM existence check
+    - name: Check VMware VM existence
+      vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.vm_name }}"
+      register: vm_info_result
+      ignore_errors: true
+      when:
+        - idempotency_current_operation in ['vmware_vm_create', 'vmware_vm_provision']
+        - idempotency_component_context.vm_name is defined
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Update check result based on VM existence
+    - name: Update resource existence check result for VM
+      set_fact:
+        resource_existence_check: "{{ resource_existence_check | combine({
+          'status': 'completed',
+          'result': vm_info_result is succeeded and vm_info_result.instance is defined,
+          'message': 'VM exists' if (vm_info_result is succeeded and vm_info_result.instance is defined) else 'VM does not exist',
+          'severity': 'warning' if (vm_info_result is succeeded and vm_info_result.instance is defined) else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (resource_existence_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'details': {
+            'vm_state': vm_info_result.instance.hw_power_state | default('unknown') if (vm_info_result is succeeded and vm_info_result.instance is defined) else 'not_found',
+            'vm_uuid': vm_info_result.instance.instance_uuid | default('') if (vm_info_result is succeeded and vm_info_result.instance is defined) else '',
+            'vm_template': vm_info_result.instance.hw_product_uuid | default('') if (vm_info_result is succeeded and vm_info_result.instance is defined) else ''
+          }
+        }) }}"
+      when:
+        - idempotency_current_operation in ['vmware_vm_create', 'vmware_vm_provision']
+        - vm_info_result is defined
+    
+    # Generic resource existence check for other operations
+    - name: Generic resource existence check
+      set_fact:
+        resource_existence_check: "{{ resource_existence_check | combine({
+          'status': 'completed',
+          'result': false,
+          'message': 'Generic resource existence check - assuming resource does not exist',
+          'severity': 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (resource_existence_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)
+        }) }}"
+      when:
+        - idempotency_current_operation not in ['vmware_vm_create', 'vmware_vm_provision']
+    
+    # Add check to performed checks list
+    - name: Add resource existence check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [resource_existence_check] }}"
+  
+  when: "'resource_existence' in checks_to_perform"
+  tags:
+    - idempotency
+    - resource_existence
+
+# Perform VM-specific existence check
+- name: Perform VM existence check
+  block:
+    - name: Initialize VM existence check
+      set_fact:
+        vm_existence_check:
+          check_id: "vm_existence_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "vm_existence"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          vm_name: "{{ idempotency_component_context.vm_name }}"
+          datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+          status: "checking"
+          result: false
+          message: "Checking VM existence in vCenter"
+          severity: "info"
+    
+    # Check VM existence in vCenter
+    - name: Check VM existence in vCenter
+      vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.vm_name }}"
+      register: vm_existence_result
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Update VM existence check result
+    - name: Update VM existence check result
+      set_fact:
+        vm_existence_check: "{{ vm_existence_check | combine({
+          'status': 'completed',
+          'result': vm_existence_result is succeeded and vm_existence_result.instance is defined,
+          'message': ('VM ' + idempotency_component_context.vm_name + ' exists in datacenter ' + (idempotency_component_context.datacenter | default(vcenter_datacenter))) if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else ('VM ' + idempotency_component_context.vm_name + ' does not exist'),
+          'severity': 'warning' if (vm_existence_result is succeeded and vm_existence_result.instance is defined and idempotency_current_operation == 'vmware_vm_create') else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (vm_existence_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'vm_details': {
+            'power_state': vm_existence_result.instance.hw_power_state | default('unknown') if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else 'not_found',
+            'uuid': vm_existence_result.instance.instance_uuid | default('') if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else '',
+            'guest_os': vm_existence_result.instance.hw_guest_id | default('') if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else '',
+            'memory_mb': vm_existence_result.instance.hw_memtotal_mb | default(0) if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else 0,
+            'cpu_count': vm_existence_result.instance.hw_processor_count | default(0) if (vm_existence_result is succeeded and vm_existence_result.instance is defined) else 0
+          }
+        }) }}"
+    
+    # Add VM existence check to performed checks
+    - name: Add VM existence check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [vm_existence_check] }}"
+  
+  when:
+    - "'vm_existence' in checks_to_perform"
+    - idempotency_component_context.vm_name is defined
+  tags:
+    - idempotency
+    - vm_existence
+
+# Perform template availability check
+- name: Perform template availability check
+  block:
+    - name: Initialize template availability check
+      set_fact:
+        template_availability_check:
+          check_id: "template_availability_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "template_availability"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          template_name: "{{ idempotency_component_context.vm_template | default(vm_template) }}"
+          datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+          status: "checking"
+          result: false
+          message: "Checking template availability"
+          severity: "info"
+    
+    # Check template existence and availability
+    - name: Check template existence and availability
+      vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.vm_template | default(vm_template) }}"
+      register: template_availability_result
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Update template availability check result
+    - name: Update template availability check result
+      set_fact:
+        template_availability_check: "{{ template_availability_check | combine({
+          'status': 'completed',
+          'result': template_availability_result is succeeded and template_availability_result.instance is defined,
+          'message': ('Template ' + (idempotency_component_context.vm_template | default(vm_template)) + ' is available') if (template_availability_result is succeeded and template_availability_result.instance is defined) else ('Template ' + (idempotency_component_context.vm_template | default(vm_template)) + ' is not available'),
+          'severity': 'critical' if not (template_availability_result is succeeded and template_availability_result.instance is defined) else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (template_availability_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'template_details': {
+            'is_template': template_availability_result.instance.hw_is_template | default(false) if (template_availability_result is succeeded and template_availability_result.instance is defined) else false,
+            'guest_os': template_availability_result.instance.hw_guest_id | default('') if (template_availability_result is succeeded and template_availability_result.instance is defined) else '',
+            'memory_mb': template_availability_result.instance.hw_memtotal_mb | default(0) if (template_availability_result is succeeded and template_availability_result.instance is defined) else 0,
+            'cpu_count': template_availability_result.instance.hw_processor_count | default(0) if (template_availability_result is succeeded and template_availability_result.instance is defined) else 0
+          }
+        }) }}"
+    
+    # Add template availability check to performed checks
+    - name: Add template availability check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [template_availability_check] }}"
+  
+  when:
+    - "'template_availability' in checks_to_perform"
+    - idempotency_component_context.vm_template is defined or vm_template is defined
+  tags:
+    - idempotency
+    - template_availability
+
+# Perform state consistency check
+- name: Perform state consistency check
+  block:
+    - name: Initialize state consistency check
+      set_fact:
+        state_consistency_check:
+          check_id: "state_consistency_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "state_consistency"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          status: "checking"
+          result: true
+          message: "Checking state consistency"
+          severity: "info"
+          consistency_checks: []
+    
+    # Check for previous operation state files
+    - name: Check for previous operation state files
+      find:
+        paths: "{{ idempotency_checker.state_directory | default('/tmp/ansible_idempotency') }}"
+        patterns: "*{{ idempotency_current_operation }}*state*.json"
+        age: "-{{ idempotency_checker.state_retention_hours | default(24) }}h"
+      register: previous_state_files
+      ignore_errors: true
+    
+    # Analyze previous state files for consistency
+    - name: Analyze previous state files
+      set_fact:
+        state_consistency_check: "{{ state_consistency_check | combine({
+          'status': 'completed',
+          'result': previous_state_files.files | length == 0 or idempotency_checker.ignore_previous_state | default(false) | bool,
+          'message': ('Found ' + (previous_state_files.files | length | string) + ' previous state files') if previous_state_files.files | length > 0 else 'No previous state files found',
+          'severity': 'warning' if previous_state_files.files | length > 0 and not (idempotency_checker.ignore_previous_state | default(false) | bool) else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (state_consistency_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'previous_state_files': previous_state_files.files | map(attribute='path') | list if previous_state_files.files is defined else []
+        }) }}"
+    
+    # Add state consistency check to performed checks
+    - name: Add state consistency check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [state_consistency_check] }}"
+  
+  when: "'state_consistency' in checks_to_perform"
+  tags:
+    - idempotency
+    - state_consistency
+
+# Perform dependency validation check
+- name: Perform dependency validation check
+  block:
+    - name: Initialize dependency validation check
+      set_fact:
+        dependency_validation_check:
+          check_id: "dependency_validation_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "dependency_validation"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          status: "checking"
+          result: true
+          message: "Validating operation dependencies"
+          severity: "info"
+          dependencies_checked: []
+    
+    # Check vCenter connectivity
+    - name: Check vCenter connectivity
+      uri:
+        url: "https://{{ vcenter_hostname }}/rest/com/vmware/cis/session"
+        method: POST
+        user: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        force_basic_auth: yes
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        status_code: [200, 201]
+      register: vcenter_connectivity_check
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+      when: vcenter_hostname is defined
+    
+    # Update dependency validation with vCenter connectivity result
+    - name: Update dependency validation with vCenter connectivity
+      set_fact:
+        dependency_validation_check: "{{ dependency_validation_check | combine({
+          'dependencies_checked': dependency_validation_check.dependencies_checked + [{
+            'dependency_type': 'vcenter_connectivity',
+            'dependency_name': vcenter_hostname | default('unknown'),
+            'status': 'available' if (vcenter_connectivity_check is succeeded) else 'unavailable',
+            'message': 'vCenter is accessible' if (vcenter_connectivity_check is succeeded) else 'vCenter is not accessible',
+            'critical': true
+          }]
+        }) }}"
+      when: vcenter_hostname is defined and vcenter_connectivity_check is defined
+    
+    # Finalize dependency validation check
+    - name: Finalize dependency validation check
+      set_fact:
+        dependency_validation_check: "{{ dependency_validation_check | combine({
+          'status': 'completed',
+          'result': dependency_validation_check.dependencies_checked | selectattr('status', 'equalto', 'unavailable') | selectattr('critical', 'equalto', true) | list | length == 0,
+          'message': 'All critical dependencies are available' if (dependency_validation_check.dependencies_checked | selectattr('status', 'equalto', 'unavailable') | selectattr('critical', 'equalto', true) | list | length == 0) else 'Some critical dependencies are unavailable',
+          'severity': 'critical' if (dependency_validation_check.dependencies_checked | selectattr('status', 'equalto', 'unavailable') | selectattr('critical', 'equalto', true) | list | length > 0) else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (dependency_validation_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)
+        }) }}"
+    
+    # Add dependency validation check to performed checks
+    - name: Add dependency validation check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [dependency_validation_check] }}"
+  
+  when: "'dependency_validation' in checks_to_perform"
+  tags:
+    - idempotency
+    - dependency_validation
+
+# Perform conflict detection check
+- name: Perform conflict detection check
+  block:
+    - name: Initialize conflict detection check
+      set_fact:
+        conflict_detection_check:
+          check_id: "conflict_detection_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "conflict_detection"
+          check_phase: "{{ current_check_phase }}"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          operation: "{{ idempotency_current_operation }}"
+          status: "checking"
+          result: true
+          message: "Checking for resource conflicts"
+          severity: "info"
+          conflicts_detected: []
+    
+    # Check for concurrent operations on the same resource
+    - name: Check for concurrent operations
+      find:
+        paths: "{{ idempotency_checker.lock_directory | default('/tmp/ansible_locks') }}"
+        patterns: "*{{ idempotency_component_context.vm_name | default('unknown') }}*.lock"
+        age: "-{{ idempotency_checker.lock_timeout_minutes | default(30) }}m"
+      register: concurrent_operations_check
+      ignore_errors: true
+      when: idempotency_component_context.vm_name is defined
+    
+    # Update conflict detection with concurrent operations result
+    - name: Update conflict detection with concurrent operations
+      set_fact:
+        conflict_detection_check: "{{ conflict_detection_check | combine({
+          'conflicts_detected': conflict_detection_check.conflicts_detected + [{
+            'conflict_type': 'concurrent_operation',
+            'resource_name': idempotency_component_context.vm_name | default('unknown'),
+            'conflict_details': 'Another operation is currently running on this resource',
+            'lock_files': concurrent_operations_check.files | map(attribute='path') | list if concurrent_operations_check.files is defined else [],
+            'severity': 'critical'
+          }] if (concurrent_operations_check.files | default([]) | length > 0) else conflict_detection_check.conflicts_detected
+        }) }}"
+      when:
+        - idempotency_component_context.vm_name is defined
+        - concurrent_operations_check is defined
+    
+    # Finalize conflict detection check
+    - name: Finalize conflict detection check
+      set_fact:
+        conflict_detection_check: "{{ conflict_detection_check | combine({
+          'status': 'completed',
+          'result': conflict_detection_check.conflicts_detected | selectattr('severity', 'equalto', 'critical') | list | length == 0,
+          'message': 'No critical conflicts detected' if (conflict_detection_check.conflicts_detected | selectattr('severity', 'equalto', 'critical') | list | length == 0) else 'Critical conflicts detected',
+          'severity': 'critical' if (conflict_detection_check.conflicts_detected | selectattr('severity', 'equalto', 'critical') | list | length > 0) else 'info',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (conflict_detection_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)
+        }) }}"
+    
+    # Add conflict detection check to performed checks
+    - name: Add conflict detection check to performed checks
+      set_fact:
+        phase_checks_performed: "{{ phase_checks_performed + [conflict_detection_check] }}"
+  
+  when: "'conflict_detection' in checks_to_perform"
+  tags:
+    - idempotency
+    - conflict_detection
+
+# Update main operation data with phase checks
+- name: Update operation data with phase checks
+  set_fact:
+    idempotency_operation_data: "{{ idempotency_operation_data | combine({
+      'checks_performed': idempotency_operation_data.checks_performed + phase_checks_performed
+    }) }}"
+  tags:
+    - idempotency
+    - data_update
+
+# Calculate phase execution time
+- name: Calculate phase execution time
+  set_fact:
+    phase_end_time: "{{ ansible_date_time.iso8601 }}"
+    phase_execution_time: "{{ (ansible_date_time.epoch | int) - (phase_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+  tags:
+    - idempotency
+    - timing
+
+# Display phase summary
+- name: Display phase summary
+  debug:
+    msg:
+      - "Idempotency Check Phase Summary ({{ current_check_phase }}):"
+      - "  Checks Performed: {{ phase_checks_performed | length }}"
+      - "  Passed: {{ phase_checks_performed | selectattr('status', 'equalto', 'completed') | selectattr('result', 'equalto', true) | list | length }}"
+      - "  Failed: {{ phase_checks_performed | selectattr('status', 'equalto', 'completed') | selectattr('result', 'equalto', false) | list | length }}"
+      - "  Critical Issues: {{ phase_checks_performed | selectattr('severity', 'equalto', 'critical') | list | length }}"
+      - "  Warnings: {{ phase_checks_performed | selectattr('severity', 'equalto', 'warning') | list | length }}"
+      - "  Phase Execution Time: {{ phase_execution_time }}s"
+  when: idempotency_checker.display_phase_summary | default(false) | bool
+  tags:
+    - idempotency
+    - phase_summary

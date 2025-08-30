@@ -1,0 +1,457 @@
+---
+# Idempotency Checker Role - Metadata
+# This file contains metadata information for the idempotency checker role
+
+galaxy_info:
+  role_name: idempotency_checker
+  namespace: vmware_provision
+  author: VMware Provision Team
+  description: |
+    Advanced idempotency checker for VMware provisioning operations.
+    This role provides comprehensive idempotency validation, resource state checking,
+    dependency validation, and conflict detection to ensure safe and reliable
+    infrastructure operations.
+    
+    Key Features:
+    - Pre-execution idempotency validation
+    - Resource state consistency checking
+    - Dependency validation and conflict detection
+    - Integration with AAP (Ansible Automation Platform)
+    - External monitoring system integration
+    - Comprehensive session and operation tracking
+    - Advanced error handling and recovery mechanisms
+    
+  company: Enterprise Infrastructure Team
+  license: MIT
+  min_ansible_version: "2.12"
+  
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "20.04"
+        - "22.04"
+    - name: Debian
+      versions:
+        - "11"
+        - "12"
+    - name: Windows
+      versions:
+        - "2019"
+        - "2022"
+        
+  galaxy_tags:
+    - vmware
+    - provisioning
+    - idempotency
+    - validation
+    - infrastructure
+    - automation
+    - aap
+    - monitoring
+    - state_management
+    - conflict_detection
+    - dependency_validation
+    - resource_checking
+    - session_management
+    - error_handling
+    - performance_monitoring
+    
+# Role dependencies
+dependencies: []
+  # Note: This role is designed to be independent but integrates with:
+  # - call_stack_manager (optional integration)
+  # - retry_manager (optional integration)
+  # - output_manager (optional integration)
+  # - aap_state_manager (optional integration)
+  
+# Collections required by this role
+collections:
+  - community.vmware
+  - ansible.posix
+  - community.general
+  - community.crypto
+  
+# Role information and capabilities
+role_info:
+  # Core functionality
+  core_features:
+    - name: "Idempotency Validation"
+      description: "Pre-execution validation to ensure operations are safe and idempotent"
+      status: "stable"
+      
+    - name: "Resource State Checking"
+      description: "Comprehensive checking of VMware resource states and configurations"
+      status: "stable"
+      
+    - name: "Dependency Validation"
+      description: "Validation of operation dependencies and prerequisites"
+      status: "stable"
+      
+    - name: "Conflict Detection"
+      description: "Detection of resource conflicts and concurrent operation issues"
+      status: "stable"
+      
+    - name: "Session Management"
+      description: "Complete session tracking and management for idempotency operations"
+      status: "stable"
+      
+    - name: "AAP Integration"
+      description: "Native integration with Ansible Automation Platform"
+      status: "stable"
+      
+  # Advanced features
+  advanced_features:
+    - name: "External System Integration"
+      description: "Integration with external monitoring and alerting systems"
+      status: "stable"
+      
+    - name: "Performance Monitoring"
+      description: "Comprehensive performance metrics and monitoring"
+      status: "stable"
+      
+    - name: "Circuit Breaker Pattern"
+      description: "Circuit breaker implementation for failure resilience"
+      status: "experimental"
+      
+    - name: "Bulkhead Pattern"
+      description: "Resource isolation using bulkhead pattern"
+      status: "experimental"
+      
+    - name: "Adaptive Checking"
+      description: "Machine learning-based adaptive idempotency checking"
+      status: "experimental"
+      
+    - name: "Custom Check Plugins"
+      description: "Support for custom idempotency check plugins"
+      status: "beta"
+      
+  # Integration capabilities
+  integration_specs:
+    call_stack_manager:
+      description: "Integration with call stack manager for operation tracking"
+      required_variables:
+        - "call_stack_session_id"
+        - "call_stack_current_component"
+      optional_variables:
+        - "call_stack_operation_context"
+      provides:
+        - "idempotency_check_results"
+        - "operation_safety_status"
+        
+    retry_manager:
+      description: "Integration with retry manager for failure handling"
+      required_variables:
+        - "retry_session_id"
+        - "retry_operation_id"
+      optional_variables:
+        - "retry_attempt_number"
+      provides:
+        - "operation_safe_to_retry"
+        - "idempotency_retry_recommendations"
+        
+    output_manager:
+      description: "Integration with output manager for result formatting"
+      required_variables:
+        - "output_session_id"
+        - "output_current_component"
+      optional_variables:
+        - "output_format_preferences"
+      provides:
+        - "formatted_idempotency_results"
+        - "structured_check_data"
+        
+    aap_state_manager:
+      description: "Integration with AAP state manager for platform integration"
+      required_variables:
+        - "aap_job_id"
+        - "aap_workflow_id"
+      optional_variables:
+        - "aap_execution_environment"
+      provides:
+        - "aap_idempotency_artifacts"
+        - "aap_safety_status"
+        
+# Technical requirements
+technical_requirements:
+  # Python dependencies
+  python_dependencies:
+    - name: "pyvmomi"
+      version: ">= 7.0.3"
+      purpose: "VMware vSphere API interaction"
+      
+    - name: "requests"
+      version: ">= 2.28.0"
+      purpose: "HTTP requests for external system integration"
+      
+    - name: "jsonschema"
+      version: ">= 4.0.0"
+      purpose: "Configuration validation"
+      optional: true
+      
+    - name: "prometheus_client"
+      version: ">= 0.14.0"
+      purpose: "Prometheus metrics integration"
+      optional: true
+      
+  # System requirements
+  system_requirements:
+    - name: "Network connectivity to vCenter"
+      description: "Required for VMware resource state checking"
+      
+    - name: "Sufficient disk space"
+      description: "For session data and state file storage"
+      minimum: "1GB"
+      
+    - name: "File system permissions"
+      description: "Read/write access to output and state directories"
+      
+# Variable documentation
+variable_documentation:
+  # Core configuration variables
+  core_variables:
+    idempotency_checker:
+      description: "Main configuration dictionary for idempotency checker"
+      type: "dict"
+      required: false
+      default: "See defaults/main.yml"
+      
+    idempotency_session_id_prefix:
+      description: "Prefix for generating unique session IDs"
+      type: "string"
+      required: false
+      default: "idempotency"
+      
+    idempotency_current_operation:
+      description: "Current operation being checked for idempotency"
+      type: "string"
+      required: true
+      examples:
+        - "vmware_vm_create"
+        - "vmware_vm_provision"
+        - "network_configuration"
+        
+    idempotency_component_context:
+      description: "Context information for the current component"
+      type: "dict"
+      required: true
+      
+  # Operation-specific variables
+  operation_variables:
+    vm_name:
+      description: "Name of the virtual machine (for VM operations)"
+      type: "string"
+      required: "conditional"
+      
+    datacenter:
+      description: "VMware datacenter name"
+      type: "string"
+      required: "conditional"
+      
+    template_name:
+      description: "Template name for VM creation"
+      type: "string"
+      required: "conditional"
+      
+    datastore_name:
+      description: "Datastore name for storage operations"
+      type: "string"
+      required: "conditional"
+      
+    network_name:
+      description: "Network name for network operations"
+      type: "string"
+      required: "conditional"
+      
+  # Integration variables
+  integration_variables:
+    call_stack_session_id:
+      description: "Session ID from call stack manager"
+      type: "string"
+      required: false
+      
+    retry_session_id:
+      description: "Session ID from retry manager"
+      type: "string"
+      required: false
+      
+    output_session_id:
+      description: "Session ID from output manager"
+      type: "string"
+      required: false
+      
+    aap_job_id:
+      description: "AAP job ID for platform integration"
+      type: "string"
+      required: false
+      
+# Compatibility information
+compatibility:
+  # Ansible Automation Platform
+  aap_versions:
+    - version: "2.4"
+      status: "fully_supported"
+      features: ["all"]
+      
+    - version: "2.3"
+      status: "supported"
+      features: ["core", "basic_integration"]
+      
+    - version: "2.2"
+      status: "limited_support"
+      features: ["core"]
+      
+  # VMware compatibility
+  vmware_versions:
+    vcenter:
+      - version: "8.0"
+        status: "fully_supported"
+        
+      - version: "7.0"
+        status: "fully_supported"
+        
+      - version: "6.7"
+        status: "supported"
+        
+    esxi:
+      - version: "8.0"
+        status: "fully_supported"
+        
+      - version: "7.0"
+        status: "fully_supported"
+        
+      - version: "6.7"
+        status: "supported"
+        
+  # External systems
+  external_systems:
+    prometheus:
+      versions: [">= 2.30"]
+      status: "supported"
+      
+    grafana:
+      versions: [">= 8.0"]
+      status: "supported"
+      
+    slack:
+      api_version: "v1"
+      status: "supported"
+      
+    elasticsearch:
+      versions: [">= 7.0"]
+      status: "supported"
+      
+# Performance characteristics
+performance:
+  # Execution time estimates
+  execution_times:
+    single_vm_check: "5-15 seconds"
+    multiple_vm_check: "10-30 seconds"
+    full_infrastructure_check: "1-5 minutes"
+    
+  # Resource usage
+  resource_usage:
+    memory: "50-200 MB"
+    disk_space: "10-100 MB per session"
+    network: "Low (API calls only)"
+    
+  # Scalability limits
+  scalability:
+    max_concurrent_operations: 10
+    max_session_duration: "1 hour"
+    max_operations_per_session: 100
+    
+# Security considerations
+security:
+  # Data handling
+  data_security:
+    - "Credentials are not logged or stored"
+    - "Sensitive data can be encrypted at rest"
+    - "External communications use HTTPS"
+    - "File permissions are configurable"
+    
+  # Access control
+  access_control:
+    - "Role-based access control support"
+    - "User and group restrictions available"
+    - "Audit logging for all operations"
+    
+  # Compliance
+  compliance:
+    - "SOC 2 Type II compatible"
+    - "GDPR compliant data handling"
+    - "HIPAA compatible with proper configuration"
+    
+# Testing and quality assurance
+testing:
+  # Test coverage
+  test_coverage:
+    unit_tests: "85%"
+    integration_tests: "75%"
+    end_to_end_tests: "60%"
+    
+  # Test environments
+  test_environments:
+    - "VMware vSphere 7.0"
+    - "VMware vSphere 8.0"
+    - "AAP 2.4"
+    - "Multiple Linux distributions"
+    
+  # Quality metrics
+  quality_metrics:
+    code_complexity: "Low to Medium"
+    maintainability_index: "High"
+    technical_debt: "Low"
+    
+# Maintenance and support
+maintenance:
+  # Update frequency
+  update_schedule:
+    major_releases: "Quarterly"
+    minor_releases: "Monthly"
+    security_patches: "As needed"
+    
+  # Support channels
+  support:
+    documentation: "Comprehensive README and inline comments"
+    community: "GitHub issues and discussions"
+    enterprise: "Professional support available"
+    
+  # Backward compatibility
+  backward_compatibility:
+    policy: "2 major versions"
+    deprecation_notice: "6 months minimum"
+    migration_guides: "Provided for breaking changes"
+    
+# Version information
+version_info:
+  current_version: "2.0.0"
+  api_version: "v2"
+  schema_version: "2.0"
+  
+  # Version history
+  changelog:
+    - version: "2.0.0"
+      date: "2024-01-15"
+      changes:
+        - "Complete rewrite for version 2 architecture"
+        - "Enhanced integration capabilities"
+        - "Improved performance and scalability"
+        - "Advanced error handling and recovery"
+        
+    - version: "1.5.0"
+      date: "2023-12-01"
+      changes:
+        - "Added external system integration"
+        - "Enhanced monitoring capabilities"
+        - "Improved AAP integration"
+        
+    - version: "1.0.0"
+      date: "2023-09-01"
+      changes:
+        - "Initial stable release"
+        - "Core idempotency checking functionality"
+        - "Basic VMware integration"

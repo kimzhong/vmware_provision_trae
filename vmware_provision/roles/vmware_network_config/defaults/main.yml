@@ -1,0 +1,143 @@
+---
+################################################################################
+# Default Network Configuration Variables
+################################################################################
+
+# Network Configuration Defaults
+network_defaults:
+  # Network Security Defaults
+  promiscuous_mode: false
+  forged_transmits: false
+  mac_changes: false
+  allow_guest_control: false
+  
+  # Network Adapter Defaults
+  network_type: "vmxnet3"
+  connected: true
+  start_connected: true
+  wake_on_lan: false
+
+# Network Categories and Policies
+network_categories:
+  app:
+    prefix: "APP"
+    description: "Application Network"
+    priority: "high"
+    dvs_required: true
+  db:
+    prefix: "DB"
+    description: "Database Network"
+    priority: "critical"
+    dvs_required: true
+  dmz:
+    prefix: "DMZ"
+    description: "DMZ Network"
+    priority: "medium"
+    dvs_required: true
+  mgmt:
+    prefix: "MGMT"
+    description: "Management Network"
+    priority: "critical"
+    dvs_required: true
+  backup:
+    prefix: "BKP"
+    description: "Backup Network"
+    priority: "low"
+    dvs_required: false
+
+# Network Policies by Environment
+network_policies:
+  dev:
+    traffic_shaping:
+      enabled: false
+    security:
+      strict: false
+    failover:
+      active_uplinks: ["uplink1", "uplink2"]
+      standby_uplinks: []
+  sit:
+    traffic_shaping:
+      enabled: true
+      average_bandwidth: 104857600  # 100 Mbps
+      peak_bandwidth: 104857600     # 100 Mbps
+      burst_size: 104857600        # 100 Mbps
+    security:
+      strict: true
+    failover:
+      active_uplinks: ["uplink1"]
+      standby_uplinks: ["uplink2"]
+  uat:
+    traffic_shaping:
+      enabled: true
+      average_bandwidth: 209715200  # 200 Mbps
+      peak_bandwidth: 209715200     # 200 Mbps
+      burst_size: 209715200        # 200 Mbps
+    security:
+      strict: true
+    failover:
+      active_uplinks: ["uplink1"]
+      standby_uplinks: ["uplink2"]
+  prod:
+    traffic_shaping:
+      enabled: true
+      average_bandwidth: 1048576000  # 1 Gbps
+      peak_bandwidth: 1048576000     # 1 Gbps
+      burst_size: 1048576000        # 1 Gbps
+    security:
+      strict: true
+    failover:
+      active_uplinks: ["uplink1", "uplink2"]
+      standby_uplinks: ["uplink3", "uplink4"]
+
+# Network Teaming Policies
+teaming_policies:
+  load_balancing: "loadbalance_srcid"
+  notify_switches: true
+  rolling_order: false
+  failback: true
+
+# Network Validation Settings
+validation:
+  retry_max: 3           # Maximum number of retry attempts
+  retry_delay: 30        # Delay between retries in seconds
+  timeout: 300          # Timeout for network operations in seconds
+  connectivity_check:
+    enabled: true       # Enable connectivity validation
+    ping_count: 4       # Number of ping attempts
+    dns_check: true     # Check DNS resolution
+      burst_size: 104857600        # 100 Mb
+    security:
+      strict: true
+  uat:
+    traffic_shaping:
+      enabled: true
+      average_bandwidth: 209715200  # 200 Mbps
+      peak_bandwidth: 314572800     # 300 Mbps
+      burst_size: 209715200        # 200 Mb
+    security:
+      strict: true
+  prod:
+    traffic_shaping:
+      enabled: true
+      average_bandwidth: 1073741824 # 1 Gbps
+      peak_bandwidth: 2147483648    # 2 Gbps
+      burst_size: 1073741824       # 1 Gb
+    security:
+      strict: true
+
+# Load Balancing Algorithms
+load_balancing_options:
+  - loadbalance_ip
+  - loadbalance_srcmac
+  - loadbalance_srcid
+  - loadbalance_loadbased
+  - failover_explicit
+
+# Teaming Policies
+teaming_policies:
+  active_uplinks: 2
+  standby_uplinks: 1
+  notify_switches: true
+  rolling_order: false
+  failback: true
+  load_balancing: "loadbalance_srcid"

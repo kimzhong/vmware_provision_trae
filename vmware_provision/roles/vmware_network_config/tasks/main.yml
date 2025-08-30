@@ -1,0 +1,231 @@
+---
+################################################################################
+# Network Configuration Role
+#
+# This role handles the VM network configuration:
+# - Configures network adapters based on environment
+# - Sets up network policies and security
+# - Configures load balancing and teaming
+# - Validates network configuration
+################################################################################
+
+############################################################################
+# Environment-specific Network Configuration
+# Load and apply environment-specific network settings
+############################################################################
+- name: Load environment network policies
+  set_fact:
+    current_network_policy: "{{ network_policies[env] }}"
+
+- name: Get current VM network configuration
+  vmware_guest_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+  register: vm_info
+
+############################################################################
+# Network Adapter Configuration
+# Configure network adapters based on environment requirements
+############################################################################
+- name: Configure VM network adapters
+  vmware_guest_network:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+    gather_network_info: true
+    networks:
+      - name: "{{ item.value.name }}"
+        device_type: "{{ item.value.type | default(vm_defaults.network_type) }}"
+        connected: true
+        start_connected: true
+        wake_on_lan: false
+        allow_guest_control: false
+        dvswitch_name: "{{ item.value.dvswitch | default(omit) }}"
+  loop: "{{ networks | dict2items }}"
+  register: network_config
+
+############################################################################
+# Network Policy Configuration
+# Apply environment-specific network policies
+############################################################################
+- name: Configure network policies
+  vmware_dvs_portgroup_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    dvswitch_name: "{{ item.value.dvswitch }}"
+    portgroup_name: "{{ item.value.name }}"
+  loop: "{{ networks | dict2items }}"
+  when: item.value.type == "distributed"
+  register: portgroup_info
+
+- name: Apply traffic shaping policies
+  vmware_dvs_portgroup:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    portgroup_name: "{{ item.value.name }}"
+    switch_name: "{{ item.value.dvswitch }}"
+    traffic_shaping:
+      enabled: "{{ current_network_policy.traffic_shaping.enabled }}"
+      average_bandwidth: "{{ current_network_policy.traffic_shaping.average_bandwidth | default(omit) }}"
+      peak_bandwidth: "{{ current_network_policy.traffic_shaping.peak_bandwidth | default(omit) }}"
+      burst_size: "{{ current_network_policy.traffic_shaping.burst_size | default(omit) }}"
+  loop: "{{ networks | dict2items }}"
+  when:
+    - item.value.type == "distributed"
+    - current_network_policy.traffic_shaping.enabled | bool
+  register: traffic_shaping_config
+
+############################################################################
+# Security Policy Configuration
+# Apply security policies based on environment
+############################################################################
+- name: Apply security policies
+  vmware_dvs_portgroup:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    portgroup_name: "{{ item.value.name }}"
+    switch_name: "{{ item.value.dvswitch }}"
+    port_policy:
+      security:
+        promiscuous_mode: "{{ network_defaults.promiscuous_mode }}"
+        mac_changes: "{{ network_defaults.mac_changes }}"
+        forged_transmits: "{{ network_defaults.forged_transmits }}"
+  loop: "{{ networks | dict2items }}"
+  when:
+    - item.value.type == "distributed"
+    - current_network_policy.security.strict | bool
+  register: security_policy_config
+
+############################################################################
+# Network Teaming Configuration
+# Configure network teaming and load balancing
+############################################################################
+- name: Configure network teaming
+  vmware_dvs_portgroup:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    portgroup_name: "{{ item.value.name }}"
+    switch_name: "{{ item.value.dvswitch }}"
+    teaming_policy:
+      load_balance_policy: "{{ teaming_policies.load_balancing }}"
+      notify_switches: "{{ teaming_policies.notify_switches }}"
+      rolling_order: "{{ teaming_policies.rolling_order }}"
+      failback: "{{ teaming_policies.failback }}"
+  loop: "{{ networks | dict2items }}"
+  when: item.value.type == "distributed"
+  register: teaming_config
+
+############################################################################
+# Network Validation
+# Validate the network configuration
+############################################################################
+- name: Validate network configuration
+  vmware_guest_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+  register: final_vm_info
+
+- name: Verify network configuration
+  assert:
+    that:
+      - final_vm_info.instance.hw_interfaces | length == networks | length
+      - item.value.name in final_vm_info.instance.hw_interfaces | map(attribute='network') | list
+    fail_msg: "Network configuration validation failed for {{ item.value.name }}"
+    success_msg: "Network configuration validated for {{ item.value.name }}"
+  loop: "{{ networks | dict2items }}"
+
+############################################################################
+# State Update
+# Update the state file with network configuration details
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "network_configured",
+        "steps_completed": {{ (lookup('file', state_file) | from_json).steps_completed + ['network_config'] | to_json }},
+        "current_step": "disk_config",
+        "network_config": {
+          "adapters": {{ network_config | to_json }},
+          "policies": {
+            "traffic_shaping": {{ traffic_shaping_config | default({}) | to_json }},
+            "security": {{ security_policy_config | default({}) | to_json }},
+            "teaming": {{ teaming_config | default({}) | to_json }}
+          }
+        }
+      }
+    dest: "{{ state_file }}"
+  when: network_config is success
+
+############################################################################
+# AAP Integration
+# Update AAP with network configuration status
+############################################################################
+- name: Verify network connectivity
+  assert:
+    that:
+      - final_vm_info.instance.ipv4 is defined
+      - final_vm_info.instance.ipv4 != ""
+    fail_msg: "Network configuration failed - No IP address assigned"
+    success_msg: "Network configuration successful"
+
+############################################################################
+# State Update
+# Updates the state tracking with network configuration details
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "network_configured",
+        "steps_completed": {{ (lookup('file', state_file) | from_json).steps_completed + ['network_config'] | to_json }},
+        "current_step": "disk_config",
+        "network_config": {
+          "adapters": {{ network_config | to_json }},
+          "policies": {
+            "traffic_shaping": {{ traffic_shaping_config | default({}) | to_json }},
+            "security": {{ security_policy_config | default({}) | to_json }},
+            "teaming": {{ teaming_config | default({}) | to_json }}
+          },
+          "details": {{ final_vm_info.instance.networks | to_json }}
+        }
+      }
+    dest: "{{ state_file }}"
+  when: network_config is success
+
+############################################################################
+# AAP Integration
+# Updates AAP with network configuration status
+############################################################################
+- name: Set network configuration stats
+  set_stats:
+    data:
+      network_config_status: >
+        {
+          "adapters": "{{ network_config is success }}",
+          "traffic_shaping": "{{ traffic_shaping_config is defined and traffic_shaping_config is success }}",
+          "security": "{{ security_policy_config is defined and security_policy_config is success }}",
+          "teaming": "{{ teaming_config is defined and teaming_config is success }}"
+        }
+      network_config_time: "{{ ansible_date_time.iso8601 }}"
+    aggregate: true

@@ -1,0 +1,326 @@
+---
+################################################################################
+# Output Manager Role - Metadata
+#
+# This file contains metadata information for the output manager role,
+# including dependencies, supported platforms, and role information.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+galaxy_info:
+  role_name: output_manager
+  namespace: vmware_provision
+  author: VMware Automation Team
+  description: |
+    Output Manager role for VMware VM provisioning automation.
+    Provides standardized output management, multi-format support,
+    data validation, sanitization, and seamless integration with
+    Ansible Automation Platform (AAP) artifacts and external systems.
+    
+    Key Features:
+    - Multi-format output support (JSON, YAML, XML, CSV)
+    - Data validation and sanitization
+    - AAP artifacts integration
+    - External systems integration
+    - Configurable output destinations
+    - Performance optimization with compression
+    - Automated cleanup and archiving
+    - Comprehensive error handling
+    - Integration with call stack manager
+  
+  company: VMware Automation Team
+  license: MIT
+  
+  min_ansible_version: "2.12"
+  
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "20.04"
+        - "22.04"
+    - name: Windows
+      versions:
+        - "2019"
+        - "2022"
+  
+  galaxy_tags:
+    - vmware
+    - automation
+    - provisioning
+    - output
+    - management
+    - formatting
+    - validation
+    - aap
+    - ansible
+    - integration
+    - monitoring
+    - standardization
+
+# Role Dependencies
+# This role has no hard dependencies but integrates with other v2 core components
+dependencies: []
+
+# Optional role integrations (soft dependencies)
+# These roles can be used together with output_manager for enhanced functionality
+integrations:
+  - role: call_stack_manager
+    description: "Integrates with call stack manager for output traceability"
+    optional: true
+  
+  - role: retry_manager
+    description: "Integrates with retry manager for output handling during retries"
+    optional: true
+  
+  - role: idempotency_checker
+    description: "Integrates with idempotency checker for consistent output tracking"
+    optional: true
+  
+  - role: aap_state_manager
+    description: "Integrates with AAP state manager for enhanced state output"
+    optional: true
+
+# Role Collections Requirements
+collections:
+  - name: ansible.builtin
+    version: ">=2.12.0"
+  - name: community.general
+    version: ">=5.0.0"
+  - name: ansible.posix
+    version: ">=1.3.0"
+
+# Python Requirements
+python_requirements:
+  - "python>=3.8"
+  - "jinja2>=3.0.0"
+  - "pyyaml>=5.4.0"
+  - "lxml>=4.6.0"  # For XML processing
+  - "requests>=2.25.0"  # For external systems integration
+
+# Role Variables Documentation
+variables:
+  output_manager:
+    description: "Main configuration dictionary for output manager"
+    type: "dict"
+    required: false
+    default: "See defaults/main.yml"
+  
+  output_current_component:
+    description: "Current component name for output tracking"
+    type: "string"
+    required: false
+    default: "output_manager"
+  
+  output_current_data:
+    description: "Current data to be processed and formatted"
+    type: "dict"
+    required: false
+    default: "{}"
+  
+  output_current_format:
+    description: "Current output format (json, yaml, xml, csv)"
+    type: "string"
+    required: false
+    default: "json"
+  
+  output_session_id:
+    description: "Unique session identifier for output tracking"
+    type: "string"
+    required: false
+    default: "Auto-generated"
+
+# Role Tags
+tags:
+  - always
+  - output_manager
+  - validation
+  - sanitization
+  - json_output
+  - yaml_output
+  - xml_output
+  - csv_output
+  - file_output
+  - aap_integration
+  - external_integration
+  - debug
+  - finalize
+  - error
+  - cleanup
+  - compression
+  - performance
+  - maintenance
+  - archive
+  - retry
+  - metrics
+  - monitoring
+
+# Role Compatibility
+compatibility:
+  ansible_automation_platform:
+    versions:
+      - "2.4"
+      - "2.5"
+    features:
+      - "Job Templates"
+      - "Workflow Templates"
+      - "Artifacts"
+      - "Statistics"
+      - "Logging"
+  
+  vmware_vcenter:
+    versions:
+      - "8.0"
+      - "7.0"
+    apis:
+      - "vSphere API"
+      - "REST API"
+  
+  external_systems:
+    monitoring:
+      - "Prometheus"
+      - "Grafana"
+      - "Splunk"
+      - "ELK Stack"
+    
+    ticketing:
+      - "ServiceNow"
+      - "Jira"
+      - "Remedy"
+    
+    notification:
+      - "Slack"
+      - "Microsoft Teams"
+      - "Email"
+
+# Performance Characteristics
+performance:
+  execution_time:
+    typical: "< 10 seconds"
+    maximum: "< 60 seconds"
+  
+  memory_usage:
+    typical: "< 100MB"
+    maximum: "< 500MB"
+  
+  disk_usage:
+    output_files: "< 50MB per session"
+    compressed_files: "< 10MB per session"
+    archive_files: "< 100MB per month"
+  
+  throughput:
+    json_processing: "1000+ records/second"
+    xml_processing: "500+ records/second"
+    external_api_calls: "100+ calls/minute"
+
+# Security Considerations
+security:
+  sensitive_data:
+    - "Output data may contain deployment credentials"
+    - "Session IDs should be treated as sensitive"
+    - "External system authentication tokens"
+  
+  data_sanitization:
+    - "Automatic redaction of sensitive fields"
+    - "Configurable sanitization patterns"
+    - "Support for custom redaction rules"
+  
+  file_permissions:
+    output_files: "0644"
+    log_files: "0644"
+    archive_files: "0600"
+    directories: "0755"
+  
+  encryption:
+    - "Optional output file encryption"
+    - "TLS for external system communication"
+    - "Secure key management support"
+  
+  recommendations:
+    - "Use secure file paths for output storage"
+    - "Implement proper access controls"
+    - "Enable encryption for sensitive environments"
+    - "Regular security audits of output data"
+    - "Secure external system credentials"
+
+# Output Format Support
+output_formats:
+  json:
+    description: "JavaScript Object Notation"
+    features:
+      - "Pretty printing"
+      - "Metadata inclusion"
+      - "Compression support"
+      - "Validation"
+    use_cases:
+      - "API integration"
+      - "Data processing"
+      - "AAP artifacts"
+  
+  yaml:
+    description: "YAML Ain't Markup Language"
+    features:
+      - "Human-readable format"
+      - "Comment support"
+      - "Flow style options"
+      - "Validation"
+    use_cases:
+      - "Configuration files"
+      - "Documentation"
+      - "Human review"
+  
+  xml:
+    description: "eXtensible Markup Language"
+    features:
+      - "Schema validation"
+      - "Namespace support"
+      - "Pretty printing"
+      - "Metadata inclusion"
+    use_cases:
+      - "Enterprise integration"
+      - "Legacy system support"
+      - "Structured data exchange"
+  
+  csv:
+    description: "Comma-Separated Values"
+    features:
+      - "Tabular data format"
+      - "Header support"
+      - "Custom delimiters"
+      - "Excel compatibility"
+    use_cases:
+      - "Data analysis"
+      - "Reporting"
+      - "Spreadsheet import"
+
+# Integration Capabilities
+integration_capabilities:
+  call_stack_integration:
+    - "Automatic call stack correlation"
+    - "Execution context preservation"
+    - "Traceability across components"
+  
+  aap_integration:
+    - "Artifacts registration"
+    - "Statistics collection"
+    - "Job template integration"
+    - "Workflow template support"
+  
+  external_systems:
+    - "REST API integration"
+    - "Webhook support"
+    - "Authentication handling"
+    - "Retry mechanisms"
+    - "Error handling"
+  
+  monitoring_integration:
+    - "Metrics collection"
+    - "Performance tracking"
+    - "Health monitoring"
+    - "Alerting support"

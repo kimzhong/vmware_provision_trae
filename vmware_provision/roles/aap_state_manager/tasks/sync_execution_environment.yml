@@ -1,0 +1,321 @@
+---
+# AAP State Manager - Execution Environment Synchronization Tasks
+# This file contains tasks for synchronizing execution environment state with AAP
+# Handles EE validation, updates, and consistency management
+
+- name: Initialize execution environment synchronization
+  set_fact:
+    ee_sync_start_time: "{{ ansible_date_time.iso8601 }}"
+    ee_sync_operation_id: "ee_sync_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}"
+    ee_sync_status: "initializing"
+    ee_validation_results: []
+    ee_sync_actions: []
+    ee_sync_errors: []
+  tags: ["aap_state", "execution_environment"]
+
+- name: Validate execution environment sync context
+  assert:
+    that:
+      - ee_sync_context is defined
+      - ee_current_state is defined
+    fail_msg: "Invalid execution environment sync context"
+    success_msg: "Execution environment sync context validation passed"
+  tags: ["aap_state", "validation"]
+
+- name: Retrieve available execution environments from AAP
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/execution_environments/"
+    method: GET
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200]
+  register: aap_available_ees
+  when:
+    - aap_state_manager.execution_environment.validate_availability | default(true)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "ee_discovery"]
+
+- name: Extract execution environment information
+  set_fact:
+    aap_execution_environments: "{{ aap_available_ees.json.results | default([]) | map(attribute='name') | list }}"
+    aap_default_ee: "{{ aap_available_ees.json.results | default([]) | selectattr('name', 'equalto', 'default') | map(attribute='name') | first | default('default') }}"
+    ee_discovery_successful: "{{ aap_available_ees.status == 200 if aap_available_ees is defined else false }}"
+  when: aap_available_ees is defined
+  tags: ["aap_state", "ee_discovery"]
+
+- name: Set default execution environment list when API unavailable
+  set_fact:
+    aap_execution_environments: ["default"]
+    aap_default_ee: "default"
+    ee_discovery_successful: false
+  when: aap_available_ees is not defined or aap_available_ees.status != 200
+  tags: ["aap_state", "ee_discovery"]
+
+- name: Validate current execution environment availability
+  set_fact:
+    ee_validation_results: "{{ ee_validation_results + [{
+      'validation_type': 'ee_availability',
+      'ee_name': ee_current_state,
+      'is_available': ee_current_state in aap_execution_environments,
+      'available_ees': aap_execution_environments,
+      'validation_time': ansible_date_time.iso8601,
+      'status': 'passed' if ee_current_state in aap_execution_environments else 'failed'
+    }] }}"
+  when: aap_state_manager.execution_environment.validate_availability | default(true)
+  tags: ["aap_state", "ee_validation"]
+
+- name: Retrieve detailed execution environment information
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/execution_environments/?name={{ ee_current_state }}"
+    method: GET
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200]
+  register: aap_current_ee_details
+  when:
+    - ee_current_state in aap_execution_environments
+    - aap_state_manager.execution_environment.fetch_details | default(true)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "ee_details"]
+
+- name: Extract execution environment details
+  set_fact:
+    ee_details:
+      id: "{{ aap_current_ee_details.json.results[0].id | default('') }}"
+      name: "{{ aap_current_ee_details.json.results[0].name | default(ee_current_state) }}"
+      description: "{{ aap_current_ee_details.json.results[0].description | default('') }}"
+      image: "{{ aap_current_ee_details.json.results[0].image | default('') }}"
+      organization: "{{ aap_current_ee_details.json.results[0].organization | default('') }}"
+      credential: "{{ aap_current_ee_details.json.results[0].credential | default('') }}"
+      pull: "{{ aap_current_ee_details.json.results[0].pull | default('') }}"
+      created: "{{ aap_current_ee_details.json.results[0].created | default('') }}"
+      modified: "{{ aap_current_ee_details.json.results[0].modified | default('') }}"
+  when: 
+    - aap_current_ee_details is defined
+    - aap_current_ee_details.status == 200
+    - aap_current_ee_details.json.results | length > 0
+  tags: ["aap_state", "ee_details"]
+
+- name: Validate execution environment configuration
+  set_fact:
+    ee_validation_results: "{{ ee_validation_results + [{
+      'validation_type': 'ee_configuration',
+      'ee_name': ee_current_state,
+      'has_image': ee_details.image != '' if ee_details is defined else false,
+      'has_organization': ee_details.organization != '' if ee_details is defined else false,
+      'pull_policy': ee_details.pull if ee_details is defined else 'unknown',
+      'validation_time': ansible_date_time.iso8601,
+      'status': 'passed' if (ee_details is defined and ee_details.image != '') else 'warning'
+    }] }}"
+  when: 
+    - aap_state_manager.execution_environment.validate_configuration | default(true)
+    - ee_current_state in aap_execution_environments
+  tags: ["aap_state", "ee_validation"]
+
+- name: Check execution environment compatibility with operation
+  set_fact:
+    ee_compatibility_check:
+      operation_type: "{{ ee_sync_context.operation_type | default('unknown') }}"
+      required_capabilities: "{{ aap_state_manager.execution_environment.operation_requirements[ee_sync_context.operation_type] | default([]) }}"
+      ee_capabilities: "{{ aap_state_manager.execution_environment.ee_capabilities[ee_current_state] | default([]) }}"
+      is_compatible: "{{ (aap_state_manager.execution_environment.operation_requirements[ee_sync_context.operation_type] | default([])) | difference(aap_state_manager.execution_environment.ee_capabilities[ee_current_state] | default([])) | length == 0 }}"
+  when: 
+    - aap_state_manager.execution_environment.check_compatibility | default(true)
+    - ee_sync_context.operation_type is defined
+  tags: ["aap_state", "ee_compatibility"]
+
+- name: Add compatibility validation result
+  set_fact:
+    ee_validation_results: "{{ ee_validation_results + [{
+      'validation_type': 'ee_compatibility',
+      'ee_name': ee_current_state,
+      'operation_type': ee_compatibility_check.operation_type,
+      'required_capabilities': ee_compatibility_check.required_capabilities,
+      'ee_capabilities': ee_compatibility_check.ee_capabilities,
+      'is_compatible': ee_compatibility_check.is_compatible,
+      'missing_capabilities': (ee_compatibility_check.required_capabilities | difference(ee_compatibility_check.ee_capabilities)),
+      'validation_time': ansible_date_time.iso8601,
+      'status': 'passed' if ee_compatibility_check.is_compatible else 'failed'
+    }] }}"
+  when: ee_compatibility_check is defined
+  tags: ["aap_state", "ee_compatibility"]
+
+- name: Handle incompatible execution environment
+  block:
+    - name: Find compatible execution environment
+      set_fact:
+        compatible_ee: "{{ item }}"
+      loop: "{{ aap_execution_environments }}"
+      when: 
+        - (aap_state_manager.execution_environment.operation_requirements[ee_sync_context.operation_type] | default([])) | difference(aap_state_manager.execution_environment.ee_capabilities[item] | default([])) | length == 0
+        - compatible_ee is not defined
+        
+    - name: Recommend execution environment switch
+      set_fact:
+        ee_sync_actions: "{{ ee_sync_actions + [{
+          'action': 'recommend_ee_switch',
+          'current_ee': ee_current_state,
+          'recommended_ee': compatible_ee | default(aap_default_ee),
+          'reason': 'compatibility_requirements',
+          'missing_capabilities': (ee_compatibility_check.required_capabilities | difference(ee_compatibility_check.ee_capabilities)),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        
+    - name: Auto-switch execution environment if enabled
+      set_fact:
+        ee_sync_context: "{{ ee_sync_context | combine({'recommended_ee': compatible_ee | default(aap_default_ee)}) }}"
+        ee_auto_switch_performed: true
+      when: 
+        - aap_state_manager.execution_environment.auto_switch_on_incompatibility | default(false)
+        - compatible_ee is defined
+        
+  when: 
+    - ee_compatibility_check is defined
+    - not ee_compatibility_check.is_compatible
+    - aap_state_manager.execution_environment.handle_incompatibility | default(true)
+  tags: ["aap_state", "ee_incompatibility"]
+
+- name: Synchronize execution environment state with local context
+  set_fact:
+    ee_sync_context: "{{ ee_sync_context | combine({
+      'current_ee': ee_current_state,
+      'ee_details': ee_details | default({}),
+      'validation_results': ee_validation_results,
+      'compatibility_status': ee_compatibility_check.is_compatible if ee_compatibility_check is defined else true,
+      'sync_timestamp': ansible_date_time.iso8601
+    }) }}"
+    ee_sync_actions: "{{ ee_sync_actions + [{
+      'action': 'sync_ee_state',
+      'ee_name': ee_current_state,
+      'sync_direction': 'platform_to_local',
+      'timestamp': ansible_date_time.iso8601
+    }] }}"
+  tags: ["aap_state", "ee_sync"]
+
+- name: Update job execution environment if auto-switch was performed
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/jobs/{{ aap_integration_context.aap_job_id }}/"
+    method: PATCH
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      execution_environment: "{{ ee_sync_context.recommended_ee }}"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200, 202]
+  register: ee_update_result
+  when:
+    - ee_auto_switch_performed | default(false)
+    - aap_integration_context.aap_job_id is defined
+    - aap_state_manager.execution_environment.allow_job_updates | default(false)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "ee_update"]
+
+- name: Record execution environment update result
+  set_fact:
+    ee_sync_actions: "{{ ee_sync_actions + [{
+      'action': 'update_job_ee',
+      'old_ee': ee_current_state,
+      'new_ee': ee_sync_context.recommended_ee,
+      'update_successful': ee_update_result.status in [200, 202] if ee_update_result is defined else false,
+      'timestamp': ansible_date_time.iso8601
+    }] }}"
+  when: ee_update_result is defined
+  tags: ["aap_state", "ee_update"]
+
+- name: Calculate execution environment sync statistics
+  set_fact:
+    ee_sync_end_time: "{{ ansible_date_time.iso8601 }}"
+    ee_sync_execution_time: "{{ ((ansible_date_time.epoch | float) - (ee_sync_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+    ee_sync_status: "completed"
+    ee_validations_passed: "{{ ee_validation_results | selectattr('status', 'equalto', 'passed') | list | length }}"
+    ee_validations_failed: "{{ ee_validation_results | selectattr('status', 'equalto', 'failed') | list | length }}"
+    ee_validations_warnings: "{{ ee_validation_results | selectattr('status', 'equalto', 'warning') | list | length }}"
+  tags: ["aap_state", "statistics"]
+
+- name: Create execution environment sync summary
+  set_fact:
+    ee_sync_summary:
+      sync_operation_id: "{{ ee_sync_operation_id }}"
+      start_time: "{{ ee_sync_start_time }}"
+      end_time: "{{ ee_sync_end_time }}"
+      execution_time: "{{ ee_sync_execution_time }}"
+      status: "{{ ee_sync_status }}"
+      current_ee: "{{ ee_current_state }}"
+      recommended_ee: "{{ ee_sync_context.recommended_ee | default('') }}"
+      auto_switch_performed: "{{ ee_auto_switch_performed | default(false) }}"
+      discovery_successful: "{{ ee_discovery_successful }}"
+      available_ees: "{{ aap_execution_environments }}"
+      validation_summary:
+        total_validations: "{{ ee_validation_results | length }}"
+        passed: "{{ ee_validations_passed }}"
+        failed: "{{ ee_validations_failed }}"
+        warnings: "{{ ee_validations_warnings }}"
+      compatibility_status: "{{ ee_compatibility_check.is_compatible if ee_compatibility_check is defined else true }}"
+      sync_actions: "{{ ee_sync_actions }}"
+      ee_details: "{{ ee_details | default({}) }}"
+  tags: ["aap_state", "summary"]
+
+- name: Display execution environment sync summary
+  debug:
+    msg:
+      - "Execution Environment Sync Summary:"
+      - "Current EE: {{ ee_current_state }}"
+      - "Status: {{ ee_sync_status }}"
+      - "Execution Time: {{ ee_sync_execution_time }}s"
+      - "Discovery Successful: {{ ee_discovery_successful }}"
+      - "Available EEs: {{ aap_execution_environments | join(', ') }}"
+      - "Validations - Passed: {{ ee_validations_passed }}, Failed: {{ ee_validations_failed }}, Warnings: {{ ee_validations_warnings }}"
+      - "Compatibility Status: {{ ee_compatibility_check.is_compatible if ee_compatibility_check is defined else 'N/A' }}"
+      - "Auto-switch Performed: {{ ee_auto_switch_performed | default(false) }}"
+      - "Recommended EE: {{ ee_sync_context.recommended_ee | default('N/A') }}"
+  when: aap_state_manager.display_ee_sync_summary | default(false)
+  tags: ["aap_state", "summary"]
+
+- name: Handle execution environment sync failures
+  block:
+    - name: Set execution environment sync failure status
+      set_fact:
+        ee_sync_status: "failed"
+        ee_sync_error: "{{ ansible_failed_result.msg | default('Unknown EE sync error') }}"
+        
+    - name: Log execution environment sync failure
+      debug:
+        msg: "Execution environment sync failed: {{ ee_sync_error }}"
+        
+    - name: Add error to sync actions
+      set_fact:
+        ee_sync_actions: "{{ ee_sync_actions + [{
+          'action': 'sync_failed',
+          'error': ee_sync_error,
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        
+  rescue:
+    - name: Continue with degraded execution environment sync
+      debug:
+        msg: "Continuing with degraded execution environment sync"
+        
+  when: ee_sync_failed | default(false)
+  tags: ["aap_state", "error_handling"]
+
+- name: Validate execution environment sync results
+  assert:
+    that:
+      - ee_validations_failed == 0 or aap_state_manager.execution_environment.allow_validation_failures | default(true)
+      - ee_sync_status == 'completed'
+    fail_msg: "Execution environment sync failed validation requirements"
+    success_msg: "Execution environment sync completed successfully"
+  when: aap_state_manager.execution_environment.strict_validation | default(false)
+  tags: ["aap_state", "validation"]

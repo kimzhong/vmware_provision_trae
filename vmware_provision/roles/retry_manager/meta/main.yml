@@ -1,0 +1,403 @@
+---
+# Retry Manager Role - Metadata
+# Comprehensive metadata for intelligent retry mechanisms in VMware VM provisioning
+
+galaxy_info:
+  # Basic role information
+  role_name: retry_manager
+  namespace: vmware_provision
+  author: VMware Automation Team
+  description: |
+    Intelligent retry manager for VMware VM provisioning operations with configurable retry policies,
+    exponential backoff, comprehensive error handling, and seamless integration with Ansible Automation Platform.
+    
+    This role provides:
+    - Configurable retry policies (exponential backoff, linear backoff, fixed delay)
+    - Intelligent error classification and retry decision making
+    - Performance monitoring and statistics collection
+    - Integration with AAP artifacts and external monitoring systems
+    - Comprehensive logging and session tracking
+    - Circuit breaker and bulkhead patterns for resilience
+  
+  # Role metadata
+  company: Enterprise Infrastructure Team
+  license: MIT
+  min_ansible_version: "2.12"
+  
+  # Supported platforms
+  platforms:
+    - name: EL  # Enterprise Linux (RHEL, CentOS, Rocky, AlmaLinux)
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "20.04"
+        - "22.04"
+    - name: Windows
+      versions:
+        - "2019"
+        - "2022"
+  
+  # Galaxy tags for discoverability
+  galaxy_tags:
+    - vmware
+    - retry
+    - resilience
+    - automation
+    - provisioning
+    - error_handling
+    - monitoring
+    - aap
+    - infrastructure
+    - reliability
+    - backoff
+    - circuit_breaker
+    - performance
+    - logging
+    - integration
+
+# =============================================================================
+# Role Dependencies
+# =============================================================================
+
+dependencies: []
+  # No hard dependencies - this role is designed to be standalone
+  # Optional integrations with other version2 core components:
+  # - call_stack_manager (for execution context tracking)
+  # - output_manager (for standardized output handling)
+  # - idempotency_checker (for operation state validation)
+  # - aap_state_manager (for AAP state synchronization)
+
+# =============================================================================
+# Core Functionality
+# =============================================================================
+
+# Primary capabilities provided by this role
+core_features:
+  - name: "Intelligent Retry Logic"
+    description: "Configurable retry policies with exponential backoff, linear backoff, and fixed delay strategies"
+    
+  - name: "Error Classification"
+    description: "Automatic error type detection and retry eligibility determination"
+    
+  - name: "Performance Monitoring"
+    description: "Comprehensive statistics collection and performance metrics tracking"
+    
+  - name: "AAP Integration"
+    description: "Seamless integration with Ansible Automation Platform artifacts and job templates"
+    
+  - name: "External Systems Integration"
+    description: "Support for sending metrics and alerts to external monitoring and notification systems"
+    
+  - name: "Session Management"
+    description: "Complete session lifecycle management with detailed logging and tracking"
+
+# Advanced features for enterprise environments
+advanced_features:
+  - name: "Circuit Breaker Pattern"
+    description: "Automatic failure detection and service protection"
+    
+  - name: "Bulkhead Pattern"
+    description: "Resource isolation and concurrent operation management"
+    
+  - name: "Adaptive Retry"
+    description: "Dynamic retry parameter adjustment based on success rates"
+    
+  - name: "Jitter Support"
+    description: "Random delay variation to prevent thundering herd problems"
+    
+  - name: "Operation-Specific Configuration"
+    description: "Customizable retry settings per operation type"
+    
+  - name: "Comprehensive Alerting"
+    description: "Configurable alert thresholds and notification systems"
+
+# =============================================================================
+# Integration Specifications
+# =============================================================================
+
+# Integration with other version2 core components
+component_integrations:
+  call_stack_manager:
+    description: "Correlates retry operations with execution call stack"
+    data_exchange:
+      - "call_stack_session_id"
+      - "component_execution_context"
+      - "retry_correlation_data"
+    
+  output_manager:
+    description: "Provides retry statistics and session data for standardized output"
+    data_exchange:
+      - "retry_session_statistics"
+      - "operation_attempt_details"
+      - "performance_metrics"
+    
+  idempotency_checker:
+    description: "Validates operation state before retry attempts"
+    data_exchange:
+      - "operation_state_validation"
+      - "idempotency_check_results"
+      - "retry_safety_confirmation"
+    
+  aap_state_manager:
+    description: "Synchronizes retry state with AAP job and workflow templates"
+    data_exchange:
+      - "aap_job_correlation_id"
+      - "retry_session_state"
+      - "aap_artifacts_integration"
+
+# =============================================================================
+# Technical Requirements
+# =============================================================================
+
+# Python dependencies
+python_requirements:
+  - name: "requests"
+    version: ">= 2.25.0"
+    purpose: "HTTP client for external systems integration"
+    
+  - name: "jinja2"
+    version: ">= 3.0.0"
+    purpose: "Template processing for dynamic configuration"
+    
+  - name: "pyyaml"
+    version: ">= 5.4.0"
+    purpose: "YAML processing for configuration and output"
+    
+  - name: "jsonschema"
+    version: ">= 3.2.0"
+    purpose: "JSON schema validation for configuration"
+    optional: true
+
+# System requirements
+system_requirements:
+  - "Ansible >= 2.12"
+  - "Python >= 3.8"
+  - "Minimum 512MB available memory"
+  - "Minimum 100MB available disk space"
+  - "Network connectivity for external integrations (optional)"
+
+# =============================================================================
+# Variable Documentation
+# =============================================================================
+
+# Key variables that users should be aware of
+variable_documentation:
+  required_variables:
+    - name: "retry_current_operation"
+      type: "string"
+      description: "Name of the operation to be retried"
+      example: "vmware_vm_create"
+      
+  important_variables:
+    - name: "retry_manager.max_attempts"
+      type: "integer"
+      default: 3
+      description: "Maximum number of retry attempts"
+      range: "1-10"
+      
+    - name: "retry_manager.retry_policy"
+      type: "string"
+      default: "exponential_backoff"
+      description: "Retry policy strategy"
+      choices: ["exponential_backoff", "linear_backoff", "fixed_delay"]
+      
+    - name: "retry_manager.base_delay"
+      type: "integer"
+      default: 5
+      description: "Base delay in seconds before first retry"
+      range: "1-3600"
+      
+    - name: "retry_manager.max_delay"
+      type: "integer"
+      default: 300
+      description: "Maximum delay in seconds between retries"
+      range: "1-7200"
+      
+  optional_variables:
+    - name: "retry_component_context"
+      type: "dict"
+      description: "Additional context for the retry operation"
+      
+    - name: "retry_deployment_context"
+      type: "dict"
+      description: "Deployment environment context"
+      
+    - name: "retry_manager.external_integration"
+      type: "boolean"
+      default: false
+      description: "Enable external systems integration"
+
+# =============================================================================
+# Compatibility Information
+# =============================================================================
+
+# AAP compatibility
+aap_compatibility:
+  versions:
+    - "2.4"
+    - "2.5"
+  features:
+    - "Job Templates"
+    - "Workflow Templates"
+    - "Artifacts"
+    - "Statistics"
+    - "Logging"
+    - "Notifications"
+  
+# VMware compatibility
+vmware_compatibility:
+  vcenter_versions:
+    - "7.0"
+    - "8.0"
+  vsphere_versions:
+    - "7.0"
+    - "8.0"
+  
+# External systems compatibility
+external_systems_compatibility:
+  monitoring:
+    - "Prometheus"
+    - "Grafana"
+    - "DataDog"
+    - "New Relic"
+  
+  alerting:
+    - "Slack"
+    - "Microsoft Teams"
+    - "PagerDuty"
+    - "Email SMTP"
+  
+  logging:
+    - "ELK Stack"
+    - "Splunk"
+    - "Fluentd"
+    - "Syslog"
+
+# =============================================================================
+# Performance Characteristics
+# =============================================================================
+
+performance_profile:
+  execution_time:
+    typical: "< 30 seconds per operation"
+    maximum: "< 300 seconds per operation"
+    factors:
+      - "Number of retry attempts"
+      - "Delay between retries"
+      - "External system response times"
+      - "File I/O operations"
+  
+  memory_usage:
+    typical: "< 50MB per session"
+    maximum: "< 200MB per session"
+    factors:
+      - "Number of operations in session"
+      - "Size of operation context data"
+      - "Logging verbosity level"
+  
+  disk_usage:
+    typical: "< 10MB per session"
+    maximum: "< 100MB per session"
+    factors:
+      - "Number of retry attempts"
+      - "Logging detail level"
+      - "Session duration"
+  
+  throughput:
+    operations_per_minute: "20-100"
+    concurrent_sessions: "1-10"
+    factors:
+      - "Retry policy configuration"
+      - "External system latency"
+      - "System resources"
+
+# =============================================================================
+# Security Considerations
+# =============================================================================
+
+security_profile:
+  data_sensitivity:
+    - "Retry session data may contain operation parameters"
+    - "Error messages may expose system information"
+    - "External system credentials require secure handling"
+  
+  access_control:
+    - "File permissions configurable for session data"
+    - "Directory access controls supported"
+    - "User/group restrictions available"
+  
+  encryption:
+    - "Optional file encryption for sensitive environments"
+    - "HTTPS required for external system integrations"
+    - "Secure credential storage recommended"
+  
+  audit_trail:
+    - "Complete session logging available"
+    - "Access logging configurable"
+    - "Integration with external audit systems"
+
+# =============================================================================
+# Testing and Quality Assurance
+# =============================================================================
+
+testing_coverage:
+  unit_tests:
+    - "Retry logic validation"
+    - "Error classification accuracy"
+    - "Configuration validation"
+    - "Statistics calculation"
+  
+  integration_tests:
+    - "AAP integration functionality"
+    - "External systems connectivity"
+    - "File system operations"
+    - "Component integration"
+  
+  performance_tests:
+    - "High retry count scenarios"
+    - "Concurrent session handling"
+    - "Memory usage validation"
+    - "Disk space management"
+  
+  security_tests:
+    - "File permission validation"
+    - "Credential handling security"
+    - "Data sanitization verification"
+    - "Access control enforcement"
+
+# =============================================================================
+# Maintenance and Support
+# =============================================================================
+
+maintenance_info:
+  update_frequency: "Monthly for features, immediate for security"
+  backward_compatibility: "Maintained for 2 major versions"
+  deprecation_policy: "6 months notice for breaking changes"
+  
+support_channels:
+  - "Internal documentation wiki"
+  - "Team Slack channel: #vmware-automation"
+  - "Email: vmware-automation-team@company.com"
+  - "Issue tracking: Internal JIRA project"
+
+# =============================================================================
+# Version Information
+# =============================================================================
+
+version_info:
+  current_version: "2.0.0"
+  api_version: "v2"
+  compatibility_version: "2.x"
+  
+changelog_summary:
+  - version: "2.0.0"
+    date: "2024-01-15"
+    changes:
+      - "Initial version2 implementation"
+      - "Intelligent retry mechanisms"
+      - "AAP integration"
+      - "External systems support"
+      - "Performance monitoring"
+      - "Circuit breaker pattern"

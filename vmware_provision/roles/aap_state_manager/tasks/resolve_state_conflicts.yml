@@ -1,0 +1,350 @@
+---
+# AAP State Manager - State Conflict Resolution Tasks
+# This file contains tasks for detecting and resolving state conflicts between local and AAP platform state
+# Implements multiple resolution strategies and conflict handling mechanisms
+
+- name: Initialize conflict resolution session
+  set_fact:
+    conflict_resolution_start_time: "{{ ansible_date_time.iso8601 }}"
+    conflict_resolution_id: "resolve_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}"
+    conflicts_processed: 0
+    conflicts_resolved: 0
+    conflicts_failed: 0
+    resolution_actions: []
+    resolution_errors: []
+  tags: ["aap_state", "conflict_resolution"]
+
+- name: Validate conflict resolution input
+  assert:
+    that:
+      - conflicts_to_resolve is defined
+      - conflicts_to_resolve is iterable
+      - resolution_strategy is defined
+      - resolution_strategy in ['platform_wins', 'local_wins', 'manual_review', 'merge_strategy', 'timestamp_based']
+    fail_msg: "Invalid conflict resolution input parameters"
+    success_msg: "Conflict resolution input validation passed"
+  tags: ["aap_state", "validation"]
+
+- name: Process each conflict for resolution
+  include_tasks: resolve_single_conflict.yml
+  vars:
+    conflict_item: "{{ conflict }}"
+    conflict_index: "{{ ansible_loop.index0 }}"
+    strategy: "{{ resolution_strategy }}"
+  loop: "{{ conflicts_to_resolve }}"
+  loop_control:
+    loop_var: conflict
+    extended: true
+  when: conflicts_to_resolve | length > 0
+  tags: ["aap_state", "conflict_processing"]
+
+- name: Apply platform wins strategy
+  block:
+    - name: Update local state with platform values
+      set_fact:
+        aap_state_local_updates: "{{ aap_state_local_updates | default({}) | combine({
+          conflict.conflict_type.replace('_mismatch', ''): conflict.platform_state
+        }) }}"
+        resolution_actions: "{{ resolution_actions + [{
+          'action': 'platform_wins',
+          'conflict_type': conflict.conflict_type,
+          'old_value': conflict.local_state,
+          'new_value': conflict.platform_state,
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_resolved: "{{ conflicts_resolved + 1 }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'platform_wins'
+        - conflict.severity in ['warning', 'error']
+  rescue:
+    - name: Handle platform wins strategy failure
+      set_fact:
+        resolution_errors: "{{ resolution_errors + [{
+          'strategy': 'platform_wins',
+          'error': ansible_failed_result.msg | default('Unknown error'),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_failed: "{{ conflicts_failed + 1 }}"
+  when: resolution_strategy == 'platform_wins'
+  tags: ["aap_state", "platform_wins"]
+
+- name: Apply local wins strategy
+  block:
+    - name: Prepare platform update with local values
+      set_fact:
+        aap_platform_conflict_updates: "{{ aap_platform_conflict_updates | default({}) | combine({
+          conflict.conflict_type.replace('_mismatch', ''): conflict.local_state
+        }) }}"
+        resolution_actions: "{{ resolution_actions + [{
+          'action': 'local_wins',
+          'conflict_type': conflict.conflict_type,
+          'old_value': conflict.platform_state,
+          'new_value': conflict.local_state,
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_resolved: "{{ conflicts_resolved + 1 }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'local_wins'
+        - conflict.severity in ['warning', 'error']
+        - aap_state_manager.conflict_resolution.allow_platform_updates | default(false)
+  rescue:
+    - name: Handle local wins strategy failure
+      set_fact:
+        resolution_errors: "{{ resolution_errors + [{
+          'strategy': 'local_wins',
+          'error': ansible_failed_result.msg | default('Unknown error'),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_failed: "{{ conflicts_failed + 1 }}"
+  when: resolution_strategy == 'local_wins'
+  tags: ["aap_state", "local_wins"]
+
+- name: Apply timestamp-based strategy
+  block:
+    - name: Resolve conflicts based on timestamp comparison
+      set_fact:
+        timestamp_resolution: "{{ 'platform_wins' if (conflict.platform_timestamp | default('1970-01-01T00:00:00Z') | to_datetime('%Y-%m-%dT%H:%M:%SZ')) > (conflict.local_timestamp | default('1970-01-01T00:00:00Z') | to_datetime('%Y-%m-%dT%H:%M:%SZ')) else 'local_wins' }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'timestamp_based'
+        - conflict.platform_timestamp is defined
+        - conflict.local_timestamp is defined
+        
+    - name: Apply timestamp-based resolution
+      set_fact:
+        aap_state_local_updates: "{{ aap_state_local_updates | default({}) | combine({
+          conflict.conflict_type.replace('_mismatch', ''): conflict.platform_state
+        }) if timestamp_resolution == 'platform_wins' else aap_state_local_updates | default({}) }}"
+        aap_platform_conflict_updates: "{{ aap_platform_conflict_updates | default({}) | combine({
+          conflict.conflict_type.replace('_mismatch', ''): conflict.local_state
+        }) if timestamp_resolution == 'local_wins' else aap_platform_conflict_updates | default({}) }}"
+        resolution_actions: "{{ resolution_actions + [{
+          'action': 'timestamp_based_' + timestamp_resolution,
+          'conflict_type': conflict.conflict_type,
+          'platform_timestamp': conflict.platform_timestamp | default('unknown'),
+          'local_timestamp': conflict.local_timestamp | default('unknown'),
+          'resolution': timestamp_resolution,
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_resolved: "{{ conflicts_resolved + 1 }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'timestamp_based'
+        - timestamp_resolution is defined
+  rescue:
+    - name: Handle timestamp-based strategy failure
+      set_fact:
+        resolution_errors: "{{ resolution_errors + [{
+          'strategy': 'timestamp_based',
+          'error': ansible_failed_result.msg | default('Unknown error'),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_failed: "{{ conflicts_failed + 1 }}"
+  when: resolution_strategy == 'timestamp_based'
+  tags: ["aap_state", "timestamp_based"]
+
+- name: Apply merge strategy
+  block:
+    - name: Implement intelligent merge for compatible conflicts
+      set_fact:
+        merged_value: "{{ conflict.local_state if conflict.conflict_type in aap_state_manager.conflict_resolution.local_priority_types | default([]) else conflict.platform_state }}"
+        resolution_actions: "{{ resolution_actions + [{
+          'action': 'merge_strategy',
+          'conflict_type': conflict.conflict_type,
+          'local_value': conflict.local_state,
+          'platform_value': conflict.platform_state,
+          'merged_value': merged_value,
+          'merge_logic': 'priority_based',
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_resolved: "{{ conflicts_resolved + 1 }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'merge_strategy'
+        - conflict.conflict_type in aap_state_manager.conflict_resolution.mergeable_types | default(['job_status_mismatch'])
+        
+    - name: Apply merged values to appropriate targets
+      set_fact:
+        aap_state_local_updates: "{{ aap_state_local_updates | default({}) | combine({
+          conflict.conflict_type.replace('_mismatch', ''): merged_value
+        }) }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+      when: 
+        - resolution_strategy == 'merge_strategy'
+        - merged_value is defined
+  rescue:
+    - name: Handle merge strategy failure
+      set_fact:
+        resolution_errors: "{{ resolution_errors + [{
+          'strategy': 'merge_strategy',
+          'error': ansible_failed_result.msg | default('Unknown error'),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_failed: "{{ conflicts_failed + 1 }}"
+  when: resolution_strategy == 'merge_strategy'
+  tags: ["aap_state", "merge_strategy"]
+
+- name: Handle manual review strategy
+  block:
+    - name: Create manual review artifacts
+      set_fact:
+        manual_review_artifacts: "{{ manual_review_artifacts | default([]) + [{
+          'conflict_id': conflict_resolution_id + '_' + (ansible_loop.index0 | string),
+          'conflict_type': conflict.conflict_type,
+          'severity': conflict.severity,
+          'local_state': conflict.local_state,
+          'platform_state': conflict.platform_state,
+          'detected_at': conflict.detected_at,
+          'review_required': true,
+          'review_deadline': ((ansible_date_time.epoch | int) + (aap_state_manager.conflict_resolution.manual_review_timeout | default(3600))) | strftime('%Y-%m-%dT%H:%M:%SZ'),
+          'escalation_level': 'standard'
+        }] }}"
+        resolution_actions: "{{ resolution_actions + [{
+          'action': 'manual_review_required',
+          'conflict_type': conflict.conflict_type,
+          'review_artifact_id': conflict_resolution_id + '_' + (ansible_loop.index0 | string),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+      loop: "{{ conflicts_to_resolve }}"
+      loop_control:
+        loop_var: conflict
+        extended: true
+      when: 
+        - resolution_strategy == 'manual_review'
+        - conflict.severity == 'error'
+        
+    - name: Write manual review artifacts to file
+      copy:
+        content: "{{ manual_review_artifacts | to_nice_json }}"
+        dest: "{{ aap_state_manager.output_directory }}/manual_review_{{ conflict_resolution_id }}.json"
+        mode: '0644'
+      when: manual_review_artifacts is defined and manual_review_artifacts | length > 0
+      
+    - name: Set conflicts as pending manual review
+      set_fact:
+        conflicts_processed: "{{ conflicts_to_resolve | length }}"
+        conflicts_resolved: 0
+        conflicts_pending_review: "{{ manual_review_artifacts | length | default(0) }}"
+  rescue:
+    - name: Handle manual review strategy failure
+      set_fact:
+        resolution_errors: "{{ resolution_errors + [{
+          'strategy': 'manual_review',
+          'error': ansible_failed_result.msg | default('Unknown error'),
+          'timestamp': ansible_date_time.iso8601
+        }] }}"
+        conflicts_failed: "{{ conflicts_failed + 1 }}"
+  when: resolution_strategy == 'manual_review'
+  tags: ["aap_state", "manual_review"]
+
+- name: Apply platform updates for resolved conflicts
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/jobs/{{ aap_integration_context.aap_job_id }}/"
+    method: PATCH
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      extra_vars:
+        conflict_resolution:
+          resolution_id: "{{ conflict_resolution_id }}"
+          resolved_conflicts: "{{ aap_platform_conflict_updates | default({}) }}"
+          resolution_timestamp: "{{ ansible_date_time.iso8601 }}"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200, 202]
+  register: platform_conflict_update_result
+  when:
+    - aap_platform_conflict_updates is defined
+    - aap_platform_conflict_updates | length > 0
+    - aap_integration_context.aap_job_id is defined
+    - aap_state_manager.conflict_resolution.allow_platform_updates | default(false)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "platform_update"]
+
+- name: Update conflict resolution statistics
+  set_fact:
+    conflicts_processed: "{{ conflicts_to_resolve | length }}"
+    conflict_resolution_end_time: "{{ ansible_date_time.iso8601 }}"
+    conflict_resolution_execution_time: "{{ ((ansible_date_time.epoch | float) - (conflict_resolution_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+    conflict_resolution_success_rate: "{{ ((conflicts_resolved | float) / (conflicts_processed | float) * 100) | round(2) if conflicts_processed > 0 else 0 }}"
+  tags: ["aap_state", "statistics"]
+
+- name: Create conflict resolution summary
+  set_fact:
+    conflict_resolution_summary:
+      resolution_id: "{{ conflict_resolution_id }}"
+      strategy: "{{ resolution_strategy }}"
+      start_time: "{{ conflict_resolution_start_time }}"
+      end_time: "{{ conflict_resolution_end_time }}"
+      execution_time: "{{ conflict_resolution_execution_time }}"
+      conflicts_processed: "{{ conflicts_processed }}"
+      conflicts_resolved: "{{ conflicts_resolved }}"
+      conflicts_failed: "{{ conflicts_failed }}"
+      conflicts_pending_review: "{{ conflicts_pending_review | default(0) }}"
+      success_rate: "{{ conflict_resolution_success_rate }}"
+      resolution_actions: "{{ resolution_actions }}"
+      resolution_errors: "{{ resolution_errors }}"
+      platform_updates_applied: "{{ platform_conflict_update_result.status in [200, 202] if platform_conflict_update_result is defined else false }}"
+  tags: ["aap_state", "summary"]
+
+- name: Display conflict resolution summary
+  debug:
+    msg:
+      - "Conflict Resolution Summary:"
+      - "Resolution ID: {{ conflict_resolution_id }}"
+      - "Strategy: {{ resolution_strategy }}"
+      - "Execution Time: {{ conflict_resolution_execution_time }}s"
+      - "Conflicts Processed: {{ conflicts_processed }}"
+      - "Conflicts Resolved: {{ conflicts_resolved }}"
+      - "Conflicts Failed: {{ conflicts_failed }}"
+      - "Conflicts Pending Review: {{ conflicts_pending_review | default(0) }}"
+      - "Success Rate: {{ conflict_resolution_success_rate }}%"
+      - "Platform Updates Applied: {{ platform_conflict_update_result.status in [200, 202] if platform_conflict_update_result is defined else false }}"
+  when: aap_state_manager.display_conflict_resolution_summary | default(false)
+  tags: ["aap_state", "summary"]
+
+- name: Update global conflict resolution tracking
+  set_fact:
+    aap_sync_resolutions: "{{ aap_sync_resolutions | default([]) + [conflict_resolution_summary] }}"
+  tags: ["aap_state", "tracking"]
+
+- name: Validate conflict resolution results
+  assert:
+    that:
+      - conflicts_failed == 0 or aap_state_manager.conflict_resolution.allow_partial_resolution | default(true)
+      - conflicts_resolved > 0 or resolution_strategy == 'manual_review'
+    fail_msg: "Conflict resolution failed with unacceptable failure rate"
+    success_msg: "Conflict resolution completed within acceptable parameters"
+  when: aap_state_manager.conflict_resolution.strict_validation | default(false)
+  tags: ["aap_state", "validation"]
+
+- name: Handle conflict resolution failures
+  block:
+    - name: Log conflict resolution failure
+      debug:
+        msg: "Conflict resolution failed for strategy {{ resolution_strategy }}: {{ resolution_errors }}"
+        
+    - name: Trigger conflict resolution failure handler
+      set_fact:
+        aap_state_conflict_resolution_failed: true
+        aap_state_conflict_resolution_error: "{{ resolution_errors | last }}"
+        
+  when: conflicts_failed > 0 and not (aap_state_manager.conflict_resolution.allow_partial_resolution | default(true))
+  tags: ["aap_state", "error_handling"]

@@ -1,0 +1,97 @@
+---
+################################################################################
+# Development Environment Configuration
+################################################################################
+
+# vCenter Settings
+vcenter_host: "vcenter-dev.example.com"
+vcenter_username: "{{ lookup('env', 'VCENTER_DEV_USERNAME') }}"
+vcenter_password: "{{ lookup('env', 'VCENTER_DEV_PASSWORD') }}"
+
+# Infrastructure Settings
+datacenter: "DEV-DC"
+cluster: "DEV-Cluster"
+folder_base: "/DEV"
+
+# Network Configuration
+networks:
+  app:
+    name: "DEV-APP-NET"
+    type: "standard"
+    vlan: 400
+    subnet: "{{ env_defaults.dev.subnet }}"
+    gateway: "{{ env_defaults.dev.gateway }}"
+  db:
+    name: "DEV-DB-NET"
+    type: "standard"
+    vlan: 401
+    subnet: "10.0.1.0/24"
+    gateway: "10.0.1.1"
+  test:
+    name: "DEV-TEST-NET"
+    type: "standard"
+    vlan: 402
+    subnet: "10.0.2.0/24"
+    gateway: "10.0.2.1"
+
+# Storage Configuration
+datastores:
+  tier1:
+    name: "DEV-SSD-01"
+    type: "ssd"
+    multipath_policy: "round-robin"
+  tier2:
+    name: "DEV-HDD-01"
+    type: "hdd"
+    multipath_policy: "fixed"
+
+# Resource Pool Configuration
+resource_pool: "{{ resource_pools.dev }}"
+
+# Folder Structure
+folders:
+  windows: "{{ folder_base }}/Windows"
+  linux: "{{ folder_base }}/Linux"
+  app: "{{ folder_base }}/Applications"
+  db: "{{ folder_base }}/Databases"
+  test: "{{ folder_base }}/Testing"
+
+# Development Settings
+development:
+  enable_snapshots: true
+  snapshot_retention_days: 3
+  max_snapshots: 5
+  cleanup_schedule: "daily"
+  allow_nested_virtualization: true
+  debug_mode: true
+
+# Resource Limits
+resource_limits:
+  cpu_limit: -1
+  memory_limit: -1
+  allow_cpu_overcommit: true
+  allow_memory_overcommit: true
+
+# Monitoring Settings
+monitoring:
+  enabled: true
+  metrics:
+    - cpu
+    - memory
+    - disk
+    - network
+  alerts:
+    - type: "disk"
+      threshold: 95
+
+# Security Settings
+security:
+  ntp_servers:
+    - "dev-ntp1.example.com"
+  syslog_servers:
+    - "dev-syslog1.example.com"
+  firewall_rules:
+    - name: "DEV-ALL"
+      source: "{{ env_defaults.dev.subnet }}"
+      destination: "any"
+      ports: "any"

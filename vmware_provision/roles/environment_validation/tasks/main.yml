@@ -1,0 +1,166 @@
+---
+################################################################################
+# Environment Validation Role
+#
+# This role validates the environment configuration:
+# - Validates environment parameters
+# - Checks resource availability
+# - Validates network requirements
+# - Verifies storage requirements
+################################################################################
+
+############################################################################
+# Environment Parameter Validation
+# Validate required environment parameters
+############################################################################
+- name: Validate environment parameters
+  assert:
+    that:
+      - env is defined
+      - env in ['dev', 'sit', 'uat', 'prod']
+      - location is defined
+      - domain is defined
+    fail_msg: "Required environment parameters missing or invalid"
+    success_msg: "Environment parameters validated successfully"
+
+############################################################################
+# vCenter Connection Validation
+# Verify vCenter connectivity and permissions
+############################################################################
+- name: Validate vCenter connection
+  vmware_about_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+  register: vcenter_info
+
+- name: Verify vCenter version compatibility
+  assert:
+    that:
+      - vcenter_info.about_info.version is version('8.0', '>=')
+    fail_msg: "vCenter version not compatible. Required version 8.0 or higher"
+    success_msg: "vCenter version compatible"
+
+############################################################################
+# Resource Pool Validation
+# Check resource pool existence and capacity
+############################################################################
+- name: Validate resource pool
+  vmware_resource_pool_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+  register: resource_pool_info
+
+- name: Verify resource pool exists
+  assert:
+    that: "resource_pool in resource_pool_info.resource_pools_info | map(attribute='name') | list"
+    fail_msg: "Required resource pool {{ resource_pool }} not found"
+    success_msg: "Resource pool {{ resource_pool }} available"
+
+############################################################################
+# Storage Validation
+# Verify datastore availability and capacity
+############################################################################
+- name: Validate storage requirements
+  vmware_datastore_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+  register: datastore_info
+
+- name: Verify datastores exist
+  assert:
+    that: "item.value.name in datastore_info.datastores | map(attribute='name') | list"
+    fail_msg: "Required datastore {{ item.value.name }} not found"
+    success_msg: "Datastore {{ item.value.name }} available"
+  loop: "{{ datastores | dict2items }}"
+
+############################################################################
+# Network Validation
+# Check network prerequisites
+############################################################################
+- name: Validate network requirements
+  vmware_dvswitch_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+  register: dvswitch_info
+  when: "'distributed' in networks | map(attribute='type') | list"
+
+- name: Verify distributed switch exists
+  assert:
+    that: "dvswitch_info.dvswitches | length > 0"
+    fail_msg: "No distributed switch found in datacenter"
+    success_msg: "Distributed switch available"
+  when: "'distributed' in networks | map(attribute='type') | list"
+
+############################################################################
+# Folder Structure Validation
+# Verify required folders exist
+############################################################################
+- name: Validate folder structure
+  vmware_folder_info:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+  register: folder_info
+
+- name: Create missing folders
+  vmware_folder:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    folder_name: "{{ item.value }}"
+    folder_type: vm
+    state: present
+  loop: "{{ folders | dict2items }}"
+  when: "item.value not in folder_info.folders | map(attribute='path') | list"
+
+############################################################################
+# State Update
+# Update the state file with validation results
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "environment_validated",
+        "steps_completed": ["environment_validation"],
+        "current_step": "network_isolation",
+        "environment_details": {
+          "vcenter_version": "{{ vcenter_info.about_info.version }}",
+          "datacenter": "{{ datacenter }}",
+          "resource_pool": "{{ resource_pool }}",
+          "datastores": {{ datastores | to_json }},
+          "networks": {{ networks | to_json }},
+          "folders": {{ folders | to_json }}
+        }
+      }
+    dest: "{{ state_file }}"
+
+############################################################################
+# AAP Integration
+# Update AAP with validation status
+############################################################################
+- name: Set environment validation stats
+  set_stats:
+    data:
+      environment_validation: >
+        {
+          "status": "success",
+          "vcenter_version": "{{ vcenter_info.about_info.version }}",
+          "validation_time": "{{ ansible_date_time.iso8601 }}"
+        }
+    aggregate: yes

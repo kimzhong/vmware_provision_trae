@@ -1,0 +1,139 @@
+---
+################################################################################
+# Network Isolation Role
+#
+# This role handles the network isolation configuration for different environments:
+# - Validates network prerequisites
+# - Configures VLANs and port groups
+# - Sets up network security groups
+# - Configures network policies
+################################################################################
+
+############################################################################
+# Network Validation
+# Check network prerequisites and current state
+############################################################################
+- name: Validate network configuration
+  block:
+    - name: Get network information
+      vmware_portgroup_info:
+        hostname: "{{ vcenter.hostname }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: "{{ vcenter.validate_certs }}"
+      register: portgroup_info
+
+    - name: Verify required networks exist
+      assert:
+        that: "item.name in portgroup_info.portgroup_info | map(attribute='portgroup') | list"
+        fail_msg: "Required network {{ item.name }} not found"
+        success_msg: "Network {{ item.name }} available"
+      loop: "{{ networks | dict2items }}"
+      loop_control:
+        label: "{{ item.value.name }}"
+
+############################################################################
+# Network Security Groups
+# Configure security groups for the environment
+############################################################################
+- name: Configure network security groups
+  vmware_dvs_portgroup:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    portgroup_name: "{{ item.value.name }}"
+    vlan_id: "{{ item.value.vlan }}"
+    num_ports: 128
+    network_policy:
+      security:
+        promiscuous_mode: false
+        mac_changes: false
+        forged_transmits: false
+      traffic_shaping:
+        enabled: true
+    state: present
+  loop: "{{ networks | dict2items }}"
+  when: item.value.type == "distributed"
+  register: security_group_config
+
+############################################################################
+# Standard Network Configuration
+# Configure standard networks if needed
+############################################################################
+- name: Configure standard networks
+  vmware_portgroup:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    portgroup_name: "{{ item.value.name }}"
+    vlan_id: "{{ item.value.vlan }}"
+    network_policy:
+      security:
+        promiscuous_mode: false
+        mac_changes: false
+        forged_transmits: false
+    state: present
+  loop: "{{ networks | dict2items }}"
+  when: item.value.type == "standard"
+  register: standard_network_config
+
+############################################################################
+# Firewall Rules
+# Configure environment-specific firewall rules
+############################################################################
+- name: Configure firewall rules
+  vmware_host_firewall_manager:
+    hostname: "{{ vcenter.hostname }}"
+    username: "{{ vcenter.username }}"
+    password: "{{ vcenter.password }}"
+    validate_certs: "{{ vcenter.validate_certs }}"
+    rules:
+      - name: "{{ item.name }}"
+        enabled: true
+        allowed_hosts:
+          all_ip: false
+          ip_network:
+            - "{{ item.source }}"
+        service: "{{ item.ports }}"
+    state: present
+  loop: "{{ security.firewall_rules }}"
+  register: firewall_config
+
+############################################################################
+# State Update
+# Update the state file with network isolation details
+############################################################################
+- name: Update state tracking
+  copy:
+    content: >
+      {
+        "state": "network_isolated",
+        "steps_completed": {{ (lookup('file', state_file) | from_json).steps_completed + ['network_isolation'] | to_json }},
+        "current_step": "network_config",
+        "network_isolation": {
+          "networks": {{ networks | to_json }},
+          "security_groups": {{ security_group_config | to_json }},
+          "firewall_rules": {{ firewall_config | to_json }}
+        }
+      }
+    dest: "{{ state_file }}"
+  when:
+    - security_group_config is success or standard_network_config is success
+    - firewall_config is success
+
+############################################################################
+# AAP Integration
+# Update AAP with network isolation status
+############################################################################
+- name: Set network isolation stats
+  set_stats:
+    data:
+      network_isolation_status: >
+        {
+          "security_groups": "{{ security_group_config is success }}",
+          "standard_networks": "{{ standard_network_config is success }}",
+          "firewall_rules": "{{ firewall_config is success }}"
+        }
+    aggregate: yes

@@ -1,0 +1,324 @@
+---
+# AAP State Manager - Handlers
+# This file contains handlers for AAP state management operations
+# Handles cleanup, notifications, and post-processing tasks
+
+# Session Management Handlers
+- name: Complete AAP state session
+  set_fact:
+    aap_state_session_completed: true
+    aap_state_session_end_time: "{{ ansible_date_time.iso8601 }}"
+    aap_state_session_duration: "{{ ((ansible_date_time.epoch | float) - (aap_state_session_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+  listen: "complete aap state session"
+  tags: ["aap_state", "session_management"]
+
+- name: Cleanup AAP state session on error
+  block:
+    - name: Mark session as failed
+      set_fact:
+        aap_state_session_status: "failed"
+        aap_state_session_error: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+        
+    - name: Clean up temporary session files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ aap_state_manager.session_directory }}/temp_{{ aap_state_session_id }}.json"
+        - "{{ aap_state_manager.session_directory }}/lock_{{ aap_state_session_id }}.lock"
+      ignore_errors: true
+      
+  rescue:
+    - name: Log cleanup failure
+      debug:
+        msg: "Failed to cleanup AAP state session: {{ ansible_failed_result.msg | default('Unknown error') }}"
+        
+  listen: "cleanup aap state session error"
+  tags: ["aap_state", "error_handling"]
+
+# File Management Handlers
+- name: Compress AAP state files
+  archive:
+    path: "{{ aap_state_manager.state_directory }}/{{ aap_state_session_id }}"
+    dest: "{{ aap_state_manager.state_directory }}/{{ aap_state_session_id }}.tar.gz"
+    format: gz
+    remove: "{{ aap_state_manager.data_retention.archive_before_cleanup }}"
+  when: 
+    - aap_state_manager.performance.enable_compression | default(false)
+    - aap_state_session_completed | default(false)
+  listen: "compress aap state files"
+  tags: ["aap_state", "file_management"]
+
+- name: Clean up old AAP state files
+  find:
+    paths: "{{ aap_state_manager.state_directory }}"
+    age: "{{ aap_state_manager.data_retention.retention_days }}d"
+    patterns: "*.json"
+  register: old_state_files
+  listen: "cleanup old aap state files"
+  tags: ["aap_state", "cleanup"]
+
+- name: Remove old AAP state files
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ old_state_files.files }}"
+  when: 
+    - aap_state_manager.data_retention.auto_cleanup | default(true)
+    - old_state_files.files is defined
+  listen: "cleanup old aap state files"
+  tags: ["aap_state", "cleanup"]
+
+- name: Archive AAP state session data
+  archive:
+    path: "{{ aap_state_manager.session_directory }}/{{ aap_state_session_id }}"
+    dest: "{{ aap_state_manager.artifacts_directory }}/session_archive_{{ aap_state_session_id }}.{{ aap_state_manager.data_retention.archive_format }}"
+    format: "{{ 'gz' if aap_state_manager.data_retention.archive_format == 'tar.gz' else aap_state_manager.data_retention.archive_format }}"
+    remove: false
+  when: 
+    - aap_state_manager.data_retention.archive_before_cleanup | default(true)
+    - aap_state_session_completed | default(false)
+  listen: "archive aap state session"
+  tags: ["aap_state", "archival"]
+
+# External Integration Handlers
+- name: Send AAP state metrics to external monitoring
+  uri:
+    url: "{{ aap_state_manager.external_systems.monitoring.endpoint }}"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ aap_state_session_id }}"
+      operation_id: "{{ aap_state_operation_id }}"
+      metrics:
+        session_duration: "{{ aap_state_session_duration | default(0) }}"
+        operations_count: "{{ aap_state_operations_list | length | default(0) }}"
+        sync_operations: "{{ aap_state_sync_count | default(0) }}"
+        conflicts_detected: "{{ aap_sync_conflicts | length | default(0) }}"
+        conflicts_resolved: "{{ aap_sync_resolutions | length | default(0) }}"
+        api_calls_made: "{{ aap_api_calls_count | default(0) }}"
+        errors_encountered: "{{ aap_state_errors | length | default(0) }}"
+      status: "{{ aap_state_session_status | default('unknown') }}"
+      platform_info:
+        version: "{{ aap_platform_info.version | default('unknown') }}"
+        connection_status: "{{ aap_platform_status | default('unknown') }}"
+  when: 
+    - aap_state_manager.external_systems.monitoring.enabled | default(false)
+    - aap_state_manager.external_systems.monitoring.endpoint != ''
+  ignore_errors: true
+  listen: "send aap state metrics"
+  tags: ["aap_state", "monitoring"]
+
+- name: Send AAP state alerts
+  uri:
+    url: "{{ aap_state_manager.external_systems.alerting.webhook_url }}"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      alert_type: "aap_state_alert"
+      severity: "{{ alert_severity | default('info') }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ aap_state_session_id }}"
+      operation_id: "{{ aap_state_operation_id }}"
+      message: "{{ alert_message | default('AAP state management alert') }}"
+      details:
+        session_status: "{{ aap_state_session_status | default('unknown') }}"
+        platform_status: "{{ aap_platform_status | default('unknown') }}"
+        conflicts_detected: "{{ aap_sync_conflicts | length | default(0) }}"
+        errors: "{{ aap_state_errors | default([]) }}"
+      context: "{{ aap_state_manager.external_systems.alerting.include_context | default(true) | ternary(aap_integration_context, {}) }}"
+  when: 
+    - aap_state_manager.external_systems.alerting.enabled | default(false)
+    - aap_state_manager.external_systems.alerting.webhook_url != ''
+    - alert_severity in aap_state_manager.external_systems.alerting.alert_levels | default(['error', 'critical'])
+  ignore_errors: true
+  listen: "send aap state alert"
+  tags: ["aap_state", "alerting"]
+
+# Component Integration Handlers
+- name: Update call stack with AAP state completion
+  set_fact:
+    call_stack_aap_state_update:
+      component: "aap_state_manager"
+      session_id: "{{ aap_state_session_id }}"
+      operation_id: "{{ aap_state_operation_id }}"
+      status: "{{ aap_state_session_status | default('completed') }}"
+      completion_time: "{{ ansible_date_time.iso8601 }}"
+      duration: "{{ aap_state_session_duration | default(0) }}"
+      operations_performed: "{{ aap_state_operations_list | length | default(0) }}"
+      platform_integration: "{{ aap_platform_status == 'connected' }}"
+  when: aap_state_manager.integration.call_stack_manager.enabled | default(true)
+  listen: "update call stack aap state"
+  tags: ["aap_state", "integration"]
+
+- name: Register AAP state output with output manager
+  set_fact:
+    output_manager_aap_state_data:
+      component: "aap_state_manager"
+      session_id: "{{ aap_state_session_id }}"
+      operation_id: "{{ aap_state_operation_id }}"
+      output_type: "aap_state_summary"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      data:
+        session_summary: "{{ aap_state_session_summary | default({}) }}"
+        sync_summary: "{{ aap_sync_summary | default({}) }}"
+        platform_info: "{{ aap_platform_info | default({}) }}"
+        conflicts_summary:
+          detected: "{{ aap_sync_conflicts | length | default(0) }}"
+          resolved: "{{ aap_sync_resolutions | length | default(0) }}"
+        integration_status: "{{ aap_integration_status | default('unknown') }}"
+      format: "json"
+      priority: "normal"
+  when: aap_state_manager.integration.output_manager.enabled | default(true)
+  listen: "register aap state output"
+  tags: ["aap_state", "integration"]
+
+- name: Update retry manager with AAP state context
+  set_fact:
+    retry_manager_aap_state_context:
+      component: "aap_state_manager"
+      session_id: "{{ aap_state_session_id }}"
+      operation_id: "{{ aap_state_operation_id }}"
+      platform_status: "{{ aap_platform_status | default('unknown') }}"
+      api_connectivity: "{{ aap_platform_status == 'connected' }}"
+      last_successful_sync: "{{ aap_sync_summary.end_time | default('') }}"
+      error_context: "{{ aap_state_errors | default([]) }}"
+      retry_recommendations:
+        api_errors: "{{ aap_api_calls_count | default(0) > 0 and aap_state_errors | length > 0 }}"
+        sync_failures: "{{ aap_sync_conflicts | selectattr('severity', 'equalto', 'error') | list | length > 0 }}"
+        platform_connectivity: "{{ aap_platform_status != 'connected' }}"
+  when: aap_state_manager.integration.retry_manager.enabled | default(true)
+  listen: "update retry manager aap context"
+  tags: ["aap_state", "integration"]
+
+# Monitoring and Alerting Handlers
+- name: Check AAP state health metrics
+  set_fact:
+    aap_state_health_metrics:
+      sync_success_rate: "{{ ((aap_sync_resolutions | length | default(0)) / (aap_sync_conflicts | length | default(1)) * 100) | round(2) }}"
+      api_success_rate: "{{ ((aap_api_calls_count | default(1) - aap_state_errors | length | default(0)) / (aap_api_calls_count | default(1)) * 100) | round(2) }}"
+      platform_connectivity: "{{ aap_platform_status == 'connected' }}"
+      session_duration: "{{ aap_state_session_duration | default(0) }}"
+      operations_per_minute: "{{ ((aap_state_operations_list | length | default(0)) / ((aap_state_session_duration | default(1)) / 60)) | round(2) }}"
+  listen: "check aap state health"
+  tags: ["aap_state", "monitoring"]
+
+- name: Trigger AAP state alerts based on thresholds
+  set_fact:
+    aap_state_alert_triggered: true
+    alert_severity: "{{ 'critical' if (aap_state_health_metrics.sync_success_rate < 50 or aap_state_health_metrics.api_success_rate < 70) else 'warning' if (aap_state_health_metrics.sync_success_rate < 80 or aap_state_health_metrics.api_success_rate < 90) else 'info' }}"
+    alert_message: "AAP state management health check failed - Sync Success: {{ aap_state_health_metrics.sync_success_rate }}%, API Success: {{ aap_state_health_metrics.api_success_rate }}%"
+  when: 
+    - aap_state_manager.monitoring.enabled | default(false)
+    - aap_state_health_metrics is defined
+    - aap_state_health_metrics.sync_success_rate < aap_state_manager.monitoring.alert_thresholds.sync_failure_rate | default(90)
+      or aap_state_health_metrics.api_success_rate < (100 - aap_state_manager.monitoring.alert_thresholds.api_error_rate | default(10))
+  listen: "check aap state health"
+  notify: "send aap state alert"
+  tags: ["aap_state", "alerting"]
+
+# Lock Management Handlers
+- name: Release AAP state session locks
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ aap_state_manager.session_directory }}/lock_{{ aap_state_session_id }}.lock"
+    - "{{ aap_state_manager.state_directory }}/sync_lock_{{ aap_state_operation_id }}.lock"
+    - "{{ aap_state_manager.output_directory }}/global_aap_state.lock"
+  ignore_errors: true
+  listen: "release aap state locks"
+  tags: ["aap_state", "lock_management"]
+
+# Performance Optimization Handlers
+- name: Clear AAP state cache
+  file:
+    path: "{{ aap_state_manager.output_directory }}/cache"
+    state: absent
+  when: 
+    - aap_state_manager.performance.enable_caching | default(true)
+    - aap_state_session_completed | default(false)
+  listen: "clear aap state cache"
+  tags: ["aap_state", "performance"]
+
+- name: Optimize AAP state files
+  block:
+    - name: Remove empty state files
+      find:
+        paths: "{{ aap_state_manager.state_directory }}"
+        patterns: "*.json"
+        size: "0"
+      register: empty_state_files
+      
+    - name: Delete empty files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ empty_state_files.files }}"
+      
+    - name: Compress large state files
+      archive:
+        path: "{{ item.path }}"
+        dest: "{{ item.path }}.gz"
+        format: gz
+        remove: true
+      loop: "{{ large_state_files.files | default([]) }}"
+      when: aap_state_manager.performance.enable_compression | default(false)
+      
+  listen: "optimize aap state files"
+  tags: ["aap_state", "optimization"]
+
+# Error Recovery Handlers
+- name: Recover from AAP state synchronization failure
+  block:
+    - name: Reset synchronization state
+      set_fact:
+        aap_sync_status: "recovery"
+        aap_sync_recovery_attempt: "{{ aap_sync_recovery_attempt | default(0) + 1 }}"
+        
+    - name: Clear failed synchronization data
+      file:
+        path: "{{ aap_state_manager.state_directory }}/failed_sync_{{ aap_state_operation_id }}.json"
+        state: absent
+        
+    - name: Reinitialize synchronization context
+      set_fact:
+        aap_state_sync_context: "{{ aap_state_sync_context | combine({'recovery_mode': true, 'recovery_attempt': aap_sync_recovery_attempt}) }}"
+        
+  rescue:
+    - name: Log recovery failure
+      debug:
+        msg: "Failed to recover from AAP state synchronization failure: {{ ansible_failed_result.msg | default('Unknown error') }}"
+        
+  when: aap_sync_recovery_attempt | default(0) < 3
+  listen: "recover aap sync failure"
+  tags: ["aap_state", "error_recovery"]
+
+# Circuit Breaker Handlers
+- name: Activate AAP state circuit breaker
+  set_fact:
+    aap_state_circuit_breaker_active: true
+    aap_state_circuit_breaker_activation_time: "{{ ansible_date_time.iso8601 }}"
+    aap_state_circuit_breaker_failure_count: "{{ aap_state_circuit_breaker_failure_count | default(0) + 1 }}"
+  when: 
+    - aap_state_manager.advanced.circuit_breaker.enabled | default(false)
+    - aap_state_circuit_breaker_failure_count | default(0) >= aap_state_manager.advanced.circuit_breaker.failure_threshold | default(5)
+  listen: "activate aap circuit breaker"
+  tags: ["aap_state", "circuit_breaker"]
+
+- name: Reset AAP state circuit breaker
+  set_fact:
+    aap_state_circuit_breaker_active: false
+    aap_state_circuit_breaker_failure_count: 0
+    aap_state_circuit_breaker_reset_time: "{{ ansible_date_time.iso8601 }}"
+  when: 
+    - aap_state_manager.advanced.circuit_breaker.enabled | default(false)
+    - aap_state_circuit_breaker_active | default(false)
+    - ((ansible_date_time.epoch | int) - (aap_state_circuit_breaker_activation_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | int)) > aap_state_manager.advanced.circuit_breaker.recovery_timeout | default(60)
+  listen: "reset aap circuit breaker"
+  tags: ["aap_state", "circuit_breaker"]

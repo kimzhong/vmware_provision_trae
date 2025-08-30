@@ -1,0 +1,168 @@
+---
+################################################################################
+# Call Stack Manager Role - Handlers
+#
+# This file contains handlers for the call stack manager role.
+# Handlers are triggered by notify statements in tasks and provide
+# cleanup, finalization, and error handling capabilities.
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+- name: "finalize call stack"
+  block:
+    - name: "Update call stack with completion status"
+      set_fact:
+        call_stack_data: "{{ call_stack_data | combine({
+          'status': 'completed',
+          'end_time': ansible_date_time.iso8601,
+          'total_duration': (ansible_date_time.epoch | int) - (call_stack_data.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'final_depth': call_stack_data.current_depth
+        }) }}"
+      when: call_stack_data is defined
+    
+    - name: "Write final call stack to file"
+      copy:
+        content: "{{ call_stack_data | to_nice_json }}"
+        dest: "{{ call_stack_manager.output_file | default('/tmp/call_stack_' + call_stack_session_id + '_final.json') }}"
+        mode: '0644'
+      when: 
+        - call_stack_data is defined
+        - call_stack_manager.file_output | default(true)
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Register final call stack to AAP artifacts"
+      set_stats:
+        data:
+          call_stack_final_status: "{{ call_stack_data.status }}"
+          call_stack_total_duration: "{{ call_stack_data.total_duration | default(0) }}"
+          call_stack_final_depth: "{{ call_stack_data.final_depth | default(0) }}"
+          call_stack_completion_time: "{{ ansible_date_time.iso8601 }}"
+        per_host: false
+        aggregate: true
+      when: 
+        - call_stack_data is defined
+        - call_stack_manager.artifacts_integration | default(true)
+  
+  tags:
+    - call_stack
+    - finalize
+
+- name: "cleanup call stack on error"
+  block:
+    - name: "Update call stack with error status"
+      set_fact:
+        call_stack_data: "{{ call_stack_data | combine({
+          'status': 'error',
+          'error_time': ansible_date_time.iso8601,
+          'error_component': call_stack_current_component | default('unknown'),
+          'error_depth': call_stack_data.current_depth | default(0)
+        }) }}"
+      when: call_stack_data is defined
+    
+    - name: "Log error to call stack error file"
+      lineinfile:
+        path: "{{ call_stack_manager.error_handling.error_log_file | default('/tmp/call_stack_errors.log') }}"
+        line: "{{ ansible_date_time.iso8601 }} - Session: {{ call_stack_session_id | default('unknown') }} - Component: {{ call_stack_current_component | default('unknown') }} - Error occurred at depth {{ call_stack_data.current_depth | default(0) }}"
+        create: yes
+        mode: '0644'
+      when: 
+        - call_stack_manager.error_handling.log_errors | default(true)
+        - call_stack_data is defined
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Write error call stack to file"
+      copy:
+        content: "{{ call_stack_data | to_nice_json }}"
+        dest: "{{ call_stack_manager.output_file | default('/tmp/call_stack_' + call_stack_session_id + '_error.json') }}"
+        mode: '0644'
+      when: 
+        - call_stack_data is defined
+        - call_stack_manager.file_output | default(true)
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Register error call stack to AAP artifacts"
+      set_stats:
+        data:
+          call_stack_error_status: "{{ call_stack_data.status }}"
+          call_stack_error_component: "{{ call_stack_data.error_component | default('unknown') }}"
+          call_stack_error_depth: "{{ call_stack_data.error_depth | default(0) }}"
+          call_stack_error_time: "{{ ansible_date_time.iso8601 }}"
+        per_host: false
+        aggregate: true
+      when: 
+        - call_stack_data is defined
+        - call_stack_manager.artifacts_integration | default(true)
+  
+  tags:
+    - call_stack
+    - error
+    - cleanup
+
+- name: "update call stack component status"
+  block:
+    - name: "Find current component in call chain"
+      set_fact:
+        current_component_index: "{{ call_stack_data.call_chain | map(attribute='component') | list | index(call_stack_current_component) }}"
+      when: 
+        - call_stack_data is defined
+        - call_stack_current_component is defined
+        - call_stack_current_component in (call_stack_data.call_chain | map(attribute='component') | list)
+    
+    - name: "Update component status in call chain"
+      set_fact:
+        call_stack_data: "{{ call_stack_data | combine({
+          'call_chain': call_stack_data.call_chain[:current_component_index | int] + 
+                       [call_stack_data.call_chain[current_component_index | int] | combine({
+                         'status': 'completed',
+                         'end_time': ansible_date_time.iso8601,
+                         'duration': (ansible_date_time.epoch | int) - (call_stack_data.call_chain[current_component_index | int].timestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)
+                       })] + 
+                       call_stack_data.call_chain[current_component_index | int + 1:]
+        }) }}"
+      when: 
+        - current_component_index is defined
+        - call_stack_data is defined
+  
+  tags:
+    - call_stack
+    - update
+
+- name: "cleanup old call stack files"
+  block:
+    - name: "Find old call stack files"
+      find:
+        paths: "{{ call_stack_manager.output_file | dirname | default('/tmp') }}"
+        patterns: "call_stack_*.json"
+        age: "{{ call_stack_manager.retention.days | default(30) }}d"
+      register: old_call_stack_files
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Remove old call stack files"
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_call_stack_files.files }}"
+      when: 
+        - call_stack_manager.retention.auto_cleanup | default(true)
+        - old_call_stack_files.files is defined
+      delegate_to: localhost
+      run_once: true
+    
+    - name: "Log cleanup activity"
+      debug:
+        msg: "Cleaned up {{ old_call_stack_files.files | length }} old call stack files"
+      when: 
+        - old_call_stack_files.files is defined
+        - old_call_stack_files.files | length > 0
+  
+  tags:
+    - call_stack
+    - cleanup
+    - maintenance

@@ -1,0 +1,299 @@
+---
+# Retry Manager Role - Main Tasks
+# This role provides intelligent retry mechanisms for VMware VM provisioning operations
+# with configurable retry policies, exponential backoff, and comprehensive error handling
+
+- name: Initialize retry manager session
+  set_fact:
+    retry_session_id: "{{ retry_manager.session_id_prefix | default('retry') }}_{{ ansible_date_time.epoch }}_{{ 999999 | random }}"
+    retry_session_start: "{{ ansible_date_time.iso8601 }}"
+    retry_current_attempt: 0
+    retry_total_attempts: 0
+    retry_session_status: "initialized"
+    retry_operations: []
+    retry_statistics: {
+      "total_operations": 0,
+      "successful_operations": 0,
+      "failed_operations": 0,
+      "retried_operations": 0,
+      "total_retry_attempts": 0,
+      "average_retry_count": 0,
+      "max_retry_count": 0,
+      "total_execution_time": 0,
+      "average_execution_time": 0
+    }
+  tags:
+    - retry_manager
+    - initialization
+
+- name: Validate retry configuration
+  assert:
+    that:
+      - retry_current_operation is defined
+      - retry_current_operation | length > 0
+      - retry_manager.max_attempts | default(3) | int >= 1
+      - retry_manager.max_attempts | default(3) | int <= 10
+      - retry_manager.base_delay | default(5) | int >= 1
+      - retry_manager.max_delay | default(300) | int >= retry_manager.base_delay | default(5) | int
+    fail_msg: "Invalid retry configuration. Please check retry_current_operation and retry_manager settings."
+    success_msg: "Retry configuration validated successfully."
+  tags:
+    - retry_manager
+    - validation
+
+- name: Generate retry operation ID
+  set_fact:
+    retry_operation_id: "{{ retry_current_operation }}_{{ ansible_date_time.epoch }}_{{ 999999 | random }}"
+    retry_operation_start: "{{ ansible_date_time.iso8601 }}"
+  tags:
+    - retry_manager
+    - operation_tracking
+
+- name: Initialize retry operation data structure
+  set_fact:
+    retry_current_operation_data:
+      operation_id: "{{ retry_operation_id }}"
+      operation_name: "{{ retry_current_operation }}"
+      session_id: "{{ retry_session_id }}"
+      start_time: "{{ retry_operation_start }}"
+      end_time: null
+      status: "in_progress"
+      attempt_count: 0
+      max_attempts: "{{ retry_manager.max_attempts | default(3) | int }}"
+      retry_policy: "{{ retry_manager.retry_policy | default('exponential_backoff') }}"
+      base_delay: "{{ retry_manager.base_delay | default(5) | int }}"
+      max_delay: "{{ retry_manager.max_delay | default(300) | int }}"
+      backoff_multiplier: "{{ retry_manager.backoff_multiplier | default(2.0) | float }}"
+      jitter_enabled: "{{ retry_manager.jitter_enabled | default(true) | bool }}"
+      retry_conditions: "{{ retry_manager.retry_conditions | default(['connection_error', 'timeout', 'temporary_failure']) }}"
+      attempts: []
+      final_result: null
+      error_details: null
+      execution_time: 0
+      component_context: "{{ retry_component_context | default({}) }}"
+      call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+  tags:
+    - retry_manager
+    - data_structure
+
+- name: Create retry output directory
+  file:
+    path: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}"
+    state: directory
+    mode: '0755'
+  when: retry_manager.file_output | default(true) | bool
+  tags:
+    - retry_manager
+    - file_management
+
+- name: Execute operation with retry logic
+  block:
+    - name: Attempt operation execution
+      include_tasks: execute_operation_attempt.yml
+      vars:
+        attempt_number: "{{ retry_current_attempt + 1 }}"
+        operation_data: "{{ retry_current_operation_data }}"
+      loop: "{{ range(1, retry_manager.max_attempts | default(3) | int + 1) | list }}"
+      loop_control:
+        loop_var: retry_current_attempt
+        label: "Attempt {{ retry_current_attempt + 1 }} of {{ retry_manager.max_attempts | default(3) }}"
+      register: retry_attempt_results
+      until: retry_attempt_results is succeeded or retry_current_attempt >= (retry_manager.max_attempts | default(3) | int - 1)
+      delay: "{{ retry_calculated_delay | default(retry_manager.base_delay | default(5)) }}"
+      retries: 0  # We handle retries manually
+
+  rescue:
+    - name: Handle operation failure after all retries
+      set_fact:
+        retry_operation_failed: true
+        retry_final_error: "{{ ansible_failed_result | default('Unknown error occurred') }}"
+      tags:
+        - retry_manager
+        - error_handling
+
+- name: Calculate retry statistics
+  set_fact:
+    retry_operation_end_time: "{{ ansible_date_time.iso8601 }}"
+    retry_operation_duration: "{{ (ansible_date_time.epoch | int) - (retry_operation_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+  tags:
+    - retry_manager
+    - statistics
+
+- name: Update operation data with final results
+  set_fact:
+    retry_current_operation_data: "{{ retry_current_operation_data | combine({
+      'end_time': retry_operation_end_time,
+      'status': 'completed' if not (retry_operation_failed | default(false)) else 'failed',
+      'attempt_count': retry_current_attempt + 1,
+      'execution_time': retry_operation_duration | int,
+      'final_result': retry_attempt_results if not (retry_operation_failed | default(false)) else null,
+      'error_details': retry_final_error if (retry_operation_failed | default(false)) else null
+    }) }}"
+  tags:
+    - retry_manager
+    - data_update
+
+- name: Add operation to session operations list
+  set_fact:
+    retry_operations: "{{ retry_operations + [retry_current_operation_data] }}"
+  tags:
+    - retry_manager
+    - session_tracking
+
+- name: Update session statistics
+  set_fact:
+    retry_statistics: "{{ retry_statistics | combine({
+      'total_operations': (retry_statistics.total_operations | int) + 1,
+      'successful_operations': (retry_statistics.successful_operations | int) + (0 if (retry_operation_failed | default(false)) else 1),
+      'failed_operations': (retry_statistics.failed_operations | int) + (1 if (retry_operation_failed | default(false)) else 0),
+      'retried_operations': (retry_statistics.retried_operations | int) + (1 if (retry_current_attempt | int) > 0 else 0),
+      'total_retry_attempts': (retry_statistics.total_retry_attempts | int) + (retry_current_attempt | int),
+      'max_retry_count': [retry_statistics.max_retry_count | int, retry_current_attempt | int] | max,
+      'total_execution_time': (retry_statistics.total_execution_time | int) + (retry_operation_duration | int)
+    }) }}"
+  tags:
+    - retry_manager
+    - statistics
+
+- name: Calculate average statistics
+  set_fact:
+    retry_statistics: "{{ retry_statistics | combine({
+      'average_retry_count': ((retry_statistics.total_retry_attempts | int) / (retry_statistics.total_operations | int)) | round(2) if (retry_statistics.total_operations | int) > 0 else 0,
+      'average_execution_time': ((retry_statistics.total_execution_time | int) / (retry_statistics.total_operations | int)) | round(2) if (retry_statistics.total_operations | int) > 0 else 0
+    }) }}"
+  tags:
+    - retry_manager
+    - statistics
+
+- name: Write retry session data to file
+  copy:
+    content: |
+      {
+        "session_id": "{{ retry_session_id }}",
+        "session_start": "{{ retry_session_start }}",
+        "session_end": "{{ ansible_date_time.iso8601 }}",
+        "session_status": "{{ retry_session_status }}",
+        "current_operation": {{ retry_current_operation_data | to_nice_json }},
+        "all_operations": {{ retry_operations | to_nice_json }},
+        "statistics": {{ retry_statistics | to_nice_json }},
+        "configuration": {
+          "max_attempts": {{ retry_manager.max_attempts | default(3) }},
+          "retry_policy": "{{ retry_manager.retry_policy | default('exponential_backoff') }}",
+          "base_delay": {{ retry_manager.base_delay | default(5) }},
+          "max_delay": {{ retry_manager.max_delay | default(300) }},
+          "backoff_multiplier": {{ retry_manager.backoff_multiplier | default(2.0) }},
+          "jitter_enabled": {{ retry_manager.jitter_enabled | default(true) | lower }},
+          "retry_conditions": {{ retry_manager.retry_conditions | default(['connection_error', 'timeout', 'temporary_failure']) | to_nice_json }}
+        },
+        "metadata": {
+          "ansible_version": "{{ ansible_version.full }}",
+          "controller_hostname": "{{ ansible_hostname }}",
+          "execution_user": "{{ ansible_user_id }}",
+          "call_stack_session_id": "{{ call_stack_session_id | default('') }}",
+          "deployment_context": {{ retry_deployment_context | default({}) | to_nice_json }}
+        }
+      }
+    dest: "{{ retry_manager.output_dir | default('/tmp/ansible_retry') }}/retry_session_{{ retry_session_id }}.json"
+    mode: '0644'
+  when: retry_manager.file_output | default(true) | bool
+  tags:
+    - retry_manager
+    - file_output
+
+- name: Register retry session data to AAP artifacts
+  set_stats:
+    data:
+      retry_session_id: "{{ retry_session_id }}"
+      retry_current_operation: "{{ retry_current_operation }}"
+      retry_operation_id: "{{ retry_operation_id }}"
+      retry_operation_status: "{{ retry_current_operation_data.status }}"
+      retry_attempt_count: "{{ retry_current_operation_data.attempt_count }}"
+      retry_execution_time: "{{ retry_current_operation_data.execution_time }}"
+      retry_session_statistics: "{{ retry_statistics }}"
+      retry_operation_success: "{{ not (retry_operation_failed | default(false)) }}"
+      retry_timestamp: "{{ ansible_date_time.iso8601 }}"
+  when: retry_manager.artifacts_integration | default(true) | bool
+  tags:
+    - retry_manager
+    - aap_integration
+
+- name: Send retry metrics to external monitoring systems
+  uri:
+    url: "{{ item.url }}"
+    method: "{{ item.method | default('POST') }}"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "{{ item.auth_header | default('') }}"
+    body_format: json
+    body:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      session_id: "{{ retry_session_id }}"
+      operation: "{{ retry_current_operation }}"
+      operation_id: "{{ retry_operation_id }}"
+      status: "{{ retry_current_operation_data.status }}"
+      attempt_count: "{{ retry_current_operation_data.attempt_count }}"
+      execution_time: "{{ retry_current_operation_data.execution_time }}"
+      success: "{{ not (retry_operation_failed | default(false)) }}"
+      statistics: "{{ retry_statistics }}"
+      environment: "{{ retry_deployment_context.environment | default('unknown') }}"
+      component: "retry_manager"
+    timeout: "{{ item.timeout | default(30) }}"
+    status_code: [200, 201, 202]
+  loop: "{{ retry_manager.external_systems | default([]) }}"
+  when: 
+    - retry_manager.external_integration | default(false) | bool
+    - item.enabled | default(true) | bool
+  ignore_errors: true
+  tags:
+    - retry_manager
+    - external_integration
+
+- name: Update retry session status to completed
+  set_fact:
+    retry_session_status: "completed"
+  tags:
+    - retry_manager
+    - session_management
+
+- name: Display retry operation summary
+  debug:
+    msg: |
+      Retry Manager - Operation Summary:
+      ================================
+      Session ID: {{ retry_session_id }}
+      Operation: {{ retry_current_operation }}
+      Operation ID: {{ retry_operation_id }}
+      Status: {{ retry_current_operation_data.status }}
+      Attempts: {{ retry_current_operation_data.attempt_count }}/{{ retry_current_operation_data.max_attempts }}
+      Execution Time: {{ retry_current_operation_data.execution_time }}s
+      Success Rate: {{ ((retry_statistics.successful_operations | int) * 100 / (retry_statistics.total_operations | int)) | round(1) if (retry_statistics.total_operations | int) > 0 else 0 }}%
+      Average Retry Count: {{ retry_statistics.average_retry_count }}
+      {% if retry_operation_failed | default(false) %}
+      Error: {{ retry_final_error | default('Unknown error') }}
+      {% endif %}
+  when: retry_manager.debug_mode | default(false) | bool
+  tags:
+    - retry_manager
+    - summary
+
+- name: Trigger retry completion handlers
+  meta: flush_handlers
+  tags:
+    - retry_manager
+    - handlers
+
+- name: Fail if operation ultimately failed
+  fail:
+    msg: |
+      Retry Manager - Operation Failed:
+      Operation: {{ retry_current_operation }}
+      Operation ID: {{ retry_operation_id }}
+      Attempts: {{ retry_current_operation_data.attempt_count }}/{{ retry_current_operation_data.max_attempts }}
+      Final Error: {{ retry_final_error | default('Unknown error occurred after all retry attempts') }}
+      Session ID: {{ retry_session_id }}
+  when: 
+    - retry_operation_failed | default(false) | bool
+    - retry_manager.fail_on_final_error | default(true) | bool
+  tags:
+    - retry_manager
+    - error_handling

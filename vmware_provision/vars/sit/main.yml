@@ -1,0 +1,93 @@
+---
+################################################################################
+# SIT Environment Configuration
+################################################################################
+
+# vCenter Settings
+vcenter_host: "vcenter-sit.example.com"
+vcenter_username: "{{ lookup('env', 'VCENTER_SIT_USERNAME') }}"
+vcenter_password: "{{ lookup('env', 'VCENTER_SIT_PASSWORD') }}"
+
+# Infrastructure Settings
+datacenter: "SIT-DC"
+cluster: "SIT-Cluster"
+folder_base: "/SIT"
+
+# Network Configuration
+networks:
+  app:
+    name: "SIT-APP-NET"
+    type: "distributed"
+    vlan: 200
+    subnet: "{{ env_defaults.sit.subnet }}"
+    gateway: "{{ env_defaults.sit.gateway }}"
+  db:
+    name: "SIT-DB-NET"
+    type: "distributed"
+    vlan: 201
+    subnet: "10.1.1.0/24"
+    gateway: "10.1.1.1"
+
+# Storage Configuration
+datastores:
+  tier1:
+    name: "SIT-SSD-01"
+    type: "ssd"
+    multipath_policy: "round-robin"
+  tier2:
+    name: "SIT-HDD-01"
+    type: "hdd"
+    multipath_policy: "fixed"
+
+# Resource Pool Configuration
+resource_pool: "{{ resource_pools.sit }}"
+
+# Folder Structure
+folders:
+  windows: "{{ folder_base }}/Windows"
+  linux: "{{ folder_base }}/Linux"
+  app: "{{ folder_base }}/Applications"
+  db: "{{ folder_base }}/Databases"
+
+# High Availability Settings
+ha_settings:
+  enabled: true
+  host_monitoring: "enabled"
+  vm_monitoring: "vmMonitoringOnly"
+  failure_response: "restartVm"
+  isolation_response: "powerOff"
+
+# DRS Settings
+drs_settings:
+  enabled: true
+  automation_level: "fullyAutomated"
+  migration_threshold: 3
+
+# Monitoring Settings
+monitoring:
+  enabled: true
+  metrics:
+    - cpu
+    - memory
+    - disk
+    - network
+  alerts:
+    - type: "cpu"
+      threshold: 85
+    - type: "memory"
+      threshold: 85
+    - type: "disk"
+      threshold: 90
+
+# Security Settings
+security:
+  ntp_servers:
+    - "sit-ntp1.example.com"
+    - "sit-ntp2.example.com"
+  syslog_servers:
+    - "sit-syslog1.example.com"
+  firewall_rules:
+    - name: "SIT-APP-FW"
+      source: "{{ networks.app.subnet }}"
+      destination: "{{ networks.db.subnet }}"
+      ports: "1433,3306"

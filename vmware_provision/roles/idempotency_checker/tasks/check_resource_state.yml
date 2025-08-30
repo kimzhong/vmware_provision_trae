@@ -1,0 +1,450 @@
+---
+# Idempotency Checker - Check Resource State
+# This file contains logic for checking the current state of resources
+# to determine if operations are safe to execute or retry
+
+# Initialize resource state checking
+- name: Initialize resource state checking
+  set_fact:
+    resource_state_check_start: "{{ ansible_date_time.iso8601 }}"
+    resource_state_checks: []
+    resource_state_summary:
+      total_resources: 0
+      existing_resources: 0
+      missing_resources: 0
+      conflicting_resources: 0
+      healthy_resources: 0
+      unhealthy_resources: 0
+  tags:
+    - idempotency
+    - resource_state
+    - initialization
+
+# Check VMware VM resource state
+- name: Check VMware VM resource state
+  block:
+    - name: Initialize VM resource state check
+      set_fact:
+        vm_resource_state_check:
+          check_id: "vm_resource_state_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "vm_resource_state"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          resource_type: "vmware_vm"
+          resource_name: "{{ idempotency_component_context.vm_name }}"
+          datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+          status: "checking"
+          exists: false
+          state: "unknown"
+          health: "unknown"
+          conflicts: []
+          details: {}
+    
+    # Get detailed VM information
+    - name: Get detailed VM information
+      vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.vm_name }}"
+        schema: "vsphere"
+      register: vm_detailed_info
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Check VM disk information
+    - name: Get VM disk information
+      vmware_guest_disk_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.vm_name }}"
+      register: vm_disk_info
+      ignore_errors: true
+      when: vm_detailed_info is succeeded and vm_detailed_info.instance is defined
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Analyze VM state and health
+    - name: Analyze VM state and health
+      set_fact:
+        vm_resource_state_check: "{{ vm_resource_state_check | combine({
+          'status': 'completed',
+          'exists': vm_detailed_info is succeeded and vm_detailed_info.instance is defined,
+          'state': vm_detailed_info.instance.hw_power_state | default('unknown') if (vm_detailed_info is succeeded and vm_detailed_info.instance is defined) else 'not_found',
+          'health': vm_health_status,
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (vm_resource_state_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'details': vm_state_details
+        }) }}"
+      vars:
+        vm_health_status: >
+          {%- if vm_detailed_info is succeeded and vm_detailed_info.instance is defined -%}
+            {%- if vm_detailed_info.instance.hw_power_state == 'poweredOn' and vm_detailed_info.instance.guest.guestState | default('') == 'running' -%}
+              healthy
+            {%- elif vm_detailed_info.instance.hw_power_state == 'poweredOff' -%}
+              powered_off
+            {%- elif vm_detailed_info.instance.hw_power_state == 'suspended' -%}
+              suspended
+            {%- else -%}
+              unhealthy
+            {%- endif -%}
+          {%- else -%}
+            not_found
+          {%- endif %}
+        vm_state_details: >
+          {%- if vm_detailed_info is succeeded and vm_detailed_info.instance is defined -%}
+          {
+            "uuid": "{{ vm_detailed_info.instance.instance_uuid | default('') }}",
+            "power_state": "{{ vm_detailed_info.instance.hw_power_state | default('unknown') }}",
+            "guest_state": "{{ vm_detailed_info.instance.guest.guestState | default('unknown') }}",
+            "guest_os": "{{ vm_detailed_info.instance.hw_guest_id | default('unknown') }}",
+            "memory_mb": {{ vm_detailed_info.instance.hw_memtotal_mb | default(0) }},
+            "cpu_count": {{ vm_detailed_info.instance.hw_processor_count | default(0) }},
+            "disk_count": {{ vm_disk_info.guest_disk_info | default({}) | length }},
+            "network_count": {{ vm_detailed_info.instance.hw_eth | default([]) | length }},
+            "tools_status": "{{ vm_detailed_info.instance.guest.toolsStatus | default('unknown') }}",
+            "tools_version": "{{ vm_detailed_info.instance.guest.toolsVersion | default('unknown') }}",
+            "annotation": "{{ vm_detailed_info.instance.hw_annotation | default('') }}",
+            "folder": "{{ vm_detailed_info.instance.hw_folder | default('') }}",
+            "resource_pool": "{{ vm_detailed_info.instance.hw_cluster | default('') }}",
+            "datastore": {{ vm_detailed_info.instance.hw_files | default([]) | map(attribute='name') | list | to_json }}
+          }
+          {%- else -%}
+          {}
+          {%- endif %}
+    
+    # Check for VM configuration conflicts
+    - name: Check for VM configuration conflicts
+      set_fact:
+        vm_resource_state_check: "{{ vm_resource_state_check | combine({
+          'conflicts': vm_conflicts
+        }) }}"
+      vars:
+        vm_conflicts: >
+          {%- set conflicts = [] -%}
+          {%- if vm_detailed_info is succeeded and vm_detailed_info.instance is defined -%}
+            {%- if idempotency_component_context.vm_memory_mb is defined and vm_detailed_info.instance.hw_memtotal_mb != (idempotency_component_context.vm_memory_mb | int) -%}
+              {%- set _ = conflicts.append({
+                'type': 'memory_mismatch',
+                'expected': idempotency_component_context.vm_memory_mb | int,
+                'actual': vm_detailed_info.instance.hw_memtotal_mb,
+                'severity': 'warning',
+                'message': 'VM memory configuration differs from expected'
+              }) -%}
+            {%- endif -%}
+            {%- if idempotency_component_context.vm_cpu_count is defined and vm_detailed_info.instance.hw_processor_count != (idempotency_component_context.vm_cpu_count | int) -%}
+              {%- set _ = conflicts.append({
+                'type': 'cpu_mismatch',
+                'expected': idempotency_component_context.vm_cpu_count | int,
+                'actual': vm_detailed_info.instance.hw_processor_count,
+                'severity': 'warning',
+                'message': 'VM CPU configuration differs from expected'
+              }) -%}
+            {%- endif -%}
+            {%- if idempotency_current_operation == 'vmware_vm_create' and vm_detailed_info.instance.hw_power_state == 'poweredOn' -%}
+              {%- set _ = conflicts.append({
+                'type': 'vm_already_running',
+                'expected': 'poweredOff',
+                'actual': 'poweredOn',
+                'severity': 'critical',
+                'message': 'VM is already running, cannot recreate'
+              }) -%}
+            {%- endif -%}
+          {%- endif -%}
+          {{ conflicts }}
+    
+    # Add VM resource state check to checks list
+    - name: Add VM resource state check to checks list
+      set_fact:
+        resource_state_checks: "{{ resource_state_checks + [vm_resource_state_check] }}"
+  
+  when:
+    - idempotency_current_operation in ['vmware_vm_create', 'vmware_vm_provision', 'vmware_vm_configure']
+    - idempotency_component_context.vm_name is defined
+  tags:
+    - idempotency
+    - resource_state
+    - vm_state
+
+# Check network resource state
+- name: Check network resource state
+  block:
+    - name: Initialize network resource state check
+      set_fact:
+        network_resource_state_check:
+          check_id: "network_resource_state_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "network_resource_state"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          resource_type: "vmware_network"
+          network_name: "{{ idempotency_component_context.network_name | default(vm_network) }}"
+          datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+          status: "checking"
+          exists: false
+          state: "unknown"
+          conflicts: []
+          details: {}
+    
+    # Get network information
+    - name: Get network information
+      vmware_dvs_portgroup_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+      register: network_info
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Analyze network state
+    - name: Analyze network state
+      set_fact:
+        network_resource_state_check: "{{ network_resource_state_check | combine({
+          'status': 'completed',
+          'exists': network_exists,
+          'state': 'available' if network_exists else 'not_found',
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (network_resource_state_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'details': network_details
+        }) }}"
+      vars:
+        target_network: "{{ idempotency_component_context.network_name | default(vm_network) }}"
+        network_exists: >
+          {{ network_info is succeeded and network_info.dvs_portgroup_info is defined and 
+             (network_info.dvs_portgroup_info | selectattr('name', 'equalto', target_network) | list | length > 0) }}
+        network_details: >
+          {%- if network_info is succeeded and network_info.dvs_portgroup_info is defined -%}
+            {%- set matching_networks = network_info.dvs_portgroup_info | selectattr('name', 'equalto', target_network) | list -%}
+            {%- if matching_networks | length > 0 -%}
+              {%- set network = matching_networks[0] -%}
+              {
+                "name": "{{ network.name | default('') }}",
+                "key": "{{ network.key | default('') }}",
+                "vlan_id": "{{ network.vlan_id | default('') }}",
+                "switch_name": "{{ network.switch_name | default('') }}",
+                "port_count": {{ network.num_ports | default(0) }}
+              }
+            {%- else -%}
+              {}
+            {%- endif -%}
+          {%- else -%}
+            {}
+          {%- endif %}
+    
+    # Add network resource state check to checks list
+    - name: Add network resource state check to checks list
+      set_fact:
+        resource_state_checks: "{{ resource_state_checks + [network_resource_state_check] }}"
+  
+  when:
+    - idempotency_current_operation in ['network_configuration', 'network_setup', 'vmware_vm_provision']
+    - idempotency_component_context.network_name is defined or vm_network is defined
+  tags:
+    - idempotency
+    - resource_state
+    - network_state
+
+# Check datastore resource state
+- name: Check datastore resource state
+  block:
+    - name: Initialize datastore resource state check
+      set_fact:
+        datastore_resource_state_check:
+          check_id: "datastore_resource_state_{{ ansible_date_time.epoch }}_{{ 999 | random }}"
+          check_type: "datastore_resource_state"
+          start_time: "{{ ansible_date_time.iso8601 }}"
+          resource_type: "vmware_datastore"
+          datastore_name: "{{ idempotency_component_context.datastore_name | default(vm_datastore) }}"
+          datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+          status: "checking"
+          exists: false
+          state: "unknown"
+          capacity_sufficient: false
+          conflicts: []
+          details: {}
+    
+    # Get datastore information
+    - name: Get datastore information
+      vmware_datastore_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+        datacenter: "{{ idempotency_component_context.datacenter | default(vcenter_datacenter) }}"
+        name: "{{ idempotency_component_context.datastore_name | default(vm_datastore) }}"
+      register: datastore_info
+      ignore_errors: true
+      no_log: "{{ idempotency_checker.security.no_log_credentials | default(true) | bool }}"
+    
+    # Analyze datastore state and capacity
+    - name: Analyze datastore state and capacity
+      set_fact:
+        datastore_resource_state_check: "{{ datastore_resource_state_check | combine({
+          'status': 'completed',
+          'exists': datastore_info is succeeded and datastore_info.datastores is defined and (datastore_info.datastores | length > 0),
+          'state': datastore_state,
+          'capacity_sufficient': capacity_check,
+          'end_time': ansible_date_time.iso8601,
+          'execution_time': (ansible_date_time.epoch | int) - (datastore_resource_state_check.start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int),
+          'details': datastore_details
+        }) }}"
+      vars:
+        datastore_state: >
+          {%- if datastore_info is succeeded and datastore_info.datastores is defined and (datastore_info.datastores | length > 0) -%}
+            {%- set ds = datastore_info.datastores[0] -%}
+            {%- if ds.accessible | default(false) -%}
+              available
+            {%- else -%}
+              inaccessible
+            {%- endif -%}
+          {%- else -%}
+            not_found
+          {%- endif %}
+        capacity_check: >
+          {%- if datastore_info is succeeded and datastore_info.datastores is defined and (datastore_info.datastores | length > 0) -%}
+            {%- set ds = datastore_info.datastores[0] -%}
+            {%- set required_space_gb = idempotency_component_context.vm_disk_size_gb | default(20) | int -%}
+            {%- set available_space_gb = (ds.freeSpace | default(0) | int) / (1024 * 1024 * 1024) -%}
+            {{ available_space_gb >= required_space_gb }}
+          {%- else -%}
+            false
+          {%- endif %}
+        datastore_details: >
+          {%- if datastore_info is succeeded and datastore_info.datastores is defined and (datastore_info.datastores | length > 0) -%}
+            {%- set ds = datastore_info.datastores[0] -%}
+            {
+              "name": "{{ ds.name | default('') }}",
+              "type": "{{ ds.type | default('') }}",
+              "accessible": {{ ds.accessible | default(false) | lower }},
+              "capacity_gb": {{ (ds.capacity | default(0) | int) / (1024 * 1024 * 1024) | round(2) }},
+              "free_space_gb": {{ (ds.freeSpace | default(0) | int) / (1024 * 1024 * 1024) | round(2) }},
+              "used_space_gb": {{ ((ds.capacity | default(0) | int) - (ds.freeSpace | default(0) | int)) / (1024 * 1024 * 1024) | round(2) }},
+              "usage_percent": {{ (((ds.capacity | default(0) | int) - (ds.freeSpace | default(0) | int)) / (ds.capacity | default(1) | int) * 100) | round(2) }},
+              "vm_count": {{ ds.vm | default([]) | length }},
+              "url": "{{ ds.url | default('') }}"
+            }
+          {%- else -%}
+            {}
+          {%- endif %}
+    
+    # Check for datastore capacity conflicts
+    - name: Check for datastore capacity conflicts
+      set_fact:
+        datastore_resource_state_check: "{{ datastore_resource_state_check | combine({
+          'conflicts': datastore_conflicts
+        }) }}"
+      vars:
+        datastore_conflicts: >
+          {%- set conflicts = [] -%}
+          {%- if datastore_info is succeeded and datastore_info.datastores is defined and (datastore_info.datastores | length > 0) -%}
+            {%- set ds = datastore_info.datastores[0] -%}
+            {%- set required_space_gb = idempotency_component_context.vm_disk_size_gb | default(20) | int -%}
+            {%- set available_space_gb = (ds.freeSpace | default(0) | int) / (1024 * 1024 * 1024) -%}
+            {%- set usage_percent = (((ds.capacity | default(0) | int) - (ds.freeSpace | default(0) | int)) / (ds.capacity | default(1) | int) * 100) -%}
+            {%- if not ds.accessible | default(false) -%}
+              {%- set _ = conflicts.append({
+                'type': 'datastore_inaccessible',
+                'severity': 'critical',
+                'message': 'Datastore is not accessible'
+              }) -%}
+            {%- endif -%}
+            {%- if available_space_gb < required_space_gb -%}
+              {%- set _ = conflicts.append({
+                'type': 'insufficient_capacity',
+                'required_gb': required_space_gb,
+                'available_gb': available_space_gb | round(2),
+                'severity': 'critical',
+                'message': 'Insufficient datastore capacity for VM creation'
+              }) -%}
+            {%- endif -%}
+            {%- if usage_percent > 90 -%}
+              {%- set _ = conflicts.append({
+                'type': 'high_usage',
+                'usage_percent': usage_percent | round(2),
+                'severity': 'warning',
+                'message': 'Datastore usage is above 90%'
+              }) -%}
+            {%- endif -%}
+          {%- endif -%}
+          {{ conflicts }}
+    
+    # Add datastore resource state check to checks list
+    - name: Add datastore resource state check to checks list
+      set_fact:
+        resource_state_checks: "{{ resource_state_checks + [datastore_resource_state_check] }}"
+  
+  when:
+    - idempotency_current_operation in ['vmware_vm_create', 'vmware_vm_provision', 'storage_configuration']
+    - idempotency_component_context.datastore_name is defined or vm_datastore is defined
+  tags:
+    - idempotency
+    - resource_state
+    - datastore_state
+
+# Calculate resource state summary
+- name: Calculate resource state summary
+  set_fact:
+    resource_state_summary:
+      total_resources: "{{ resource_state_checks | length }}"
+      existing_resources: "{{ resource_state_checks | selectattr('exists', 'equalto', true) | list | length }}"
+      missing_resources: "{{ resource_state_checks | selectattr('exists', 'equalto', false) | list | length }}"
+      conflicting_resources: "{{ resource_state_checks | selectattr('conflicts', 'defined') | selectattr('conflicts', '!=', []) | list | length }}"
+      healthy_resources: "{{ resource_state_checks | selectattr('health', 'defined') | selectattr('health', 'equalto', 'healthy') | list | length }}"
+      unhealthy_resources: "{{ resource_state_checks | selectattr('health', 'defined') | selectattr('health', '!=', 'healthy') | selectattr('health', '!=', 'not_found') | list | length }}"
+      check_execution_time: "{{ (ansible_date_time.epoch | int) - (resource_state_check_start | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int) }}"
+  tags:
+    - idempotency
+    - resource_state
+    - summary
+
+# Update main operation data with resource state checks
+- name: Update operation data with resource state checks
+  set_fact:
+    idempotency_operation_data: "{{ idempotency_operation_data | combine({
+      'resource_state_checks': resource_state_checks,
+      'resource_state_summary': resource_state_summary,
+      'resource_conflicts': resource_conflicts_list
+    }) }}"
+  vars:
+    resource_conflicts_list: >
+      {%- set all_conflicts = [] -%}
+      {%- for check in resource_state_checks -%}
+        {%- if check.conflicts is defined and check.conflicts | length > 0 -%}
+          {%- for conflict in check.conflicts -%}
+            {%- set _ = all_conflicts.append({
+              'resource_type': check.resource_type,
+              'resource_name': check.get(check.resource_type.split('_')[-1] + '_name', 'unknown'),
+              'conflict_type': conflict.type,
+              'conflict_reason': conflict.message,
+              'severity': conflict.severity,
+              'details': conflict
+            }) -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ all_conflicts }}
+  tags:
+    - idempotency
+    - resource_state
+    - data_update
+
+# Display resource state summary
+- name: Display resource state summary
+  debug:
+    msg:
+      - "Resource State Check Summary:"
+      - "  Total Resources Checked: {{ resource_state_summary.total_resources }}"
+      - "  Existing Resources: {{ resource_state_summary.existing_resources }}"
+      - "  Missing Resources: {{ resource_state_summary.missing_resources }}"
+      - "  Conflicting Resources: {{ resource_state_summary.conflicting_resources }}"
+      - "  Healthy Resources: {{ resource_state_summary.healthy_resources }}"
+      - "  Unhealthy Resources: {{ resource_state_summary.unhealthy_resources }}"
+      - "  Check Execution Time: {{ resource_state_summary.check_execution_time }}s"
+  when: idempotency_checker.display_resource_summary | default(false) | bool
+  tags:
+    - idempotency
+    - resource_state
+    - display_summary

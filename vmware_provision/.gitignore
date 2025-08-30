@@ -1,0 +1,37 @@
+# Ansible
+*.retry
+*.pyc
+__pycache__/
+
+# Virtualenv
+venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ansible vault files
+*.vault
+vault.yml
+vault.yaml
+
+# State files
+/tmp/*
+*.state
+
+# Log files
+*.log
+
+# Sensitive data
+credentials.yml
+secrets.yml
+*_password*
+*_secret*
+
+# AAP specific
+*.tower

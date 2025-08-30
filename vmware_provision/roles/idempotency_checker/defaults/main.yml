@@ -1,0 +1,438 @@
+---
+# Idempotency Checker Role - Default Variables
+# This file contains all default configuration variables for the idempotency checker
+# These variables control the behavior of idempotency checking and validation
+
+# Core Idempotency Configuration
+idempotency_session_id_prefix: "idempotency"
+idempotency_checker:
+  # Enable/disable idempotency checking
+  enabled: true
+  
+  # Fail execution if operation is determined to be unsafe
+  fail_on_unsafe: true
+  
+  # Display summary information
+  display_summary: true
+  display_phase_summary: false
+  display_resource_summary: false
+  
+  # Check configuration
+  check_timeout_seconds: 300
+  max_concurrent_checks: 5
+  
+  # Resource state checking
+  resource_state_checking: true
+  dependency_validation: true
+  conflict_detection: true
+  
+  # State management
+  ignore_previous_state: false
+  state_retention_hours: 24
+  state_directory: "/tmp/ansible_idempotency"
+  
+  # Lock management for concurrent operations
+  lock_directory: "/tmp/ansible_locks"
+  lock_timeout_minutes: 30
+  create_operation_locks: true
+  
+  # File output configuration
+  file_output_enabled: true
+  output_directory: "/tmp/ansible_idempotency"
+  compress_large_files: true
+  file_size_threshold_mb: 10
+  
+  # Data retention and cleanup
+  retention:
+    enabled: true
+    max_age_days: 7
+    max_files_per_operation: 50
+    cleanup_on_completion: false
+    archive_old_files: true
+    archive_directory: "/tmp/ansible_idempotency/archive"
+  
+  # Performance settings
+  performance:
+    async_checks: false
+    parallel_resource_checks: true
+    cache_check_results: true
+    cache_ttl_minutes: 30
+    optimize_for_speed: false
+    
+  # Integration with other core components
+  integration:
+    call_stack_manager: true
+    retry_manager: true
+    output_manager: true
+    aap_state_manager: true
+    
+  # AAP (Ansible Automation Platform) integration
+  aap_integration: true
+  aap_artifacts:
+    register_session_data: true
+    register_check_results: true
+    register_resource_state: true
+    register_conflicts: true
+    
+  # External systems integration
+  external_integration: false
+  external_systems: []
+    # Example external system configuration:
+    # - name: "prometheus"
+    #   url: "https://prometheus.example.com/api/v1/write"
+    #   method: "POST"
+    #   auth_header: "Bearer your-token-here"
+    #   timeout: 30
+    #   enabled: true
+    #   retry_count: 2
+    #   retry_delay: 5
+    # - name: "slack_webhook"
+    #   url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    #   method: "POST"
+    #   timeout: 15
+    #   enabled: true
+  
+  # Security settings
+  security:
+    no_log_credentials: true
+    no_log_external: true
+    encrypt_sensitive_data: false
+    file_permissions: "0644"
+    directory_permissions: "0755"
+    access_control:
+      enabled: false
+      allowed_users: []
+      allowed_groups: []
+      
+  # Monitoring and alerting
+  monitoring:
+    enabled: false
+    metrics:
+      - "check_success_rate"
+      - "average_check_time"
+      - "resource_conflict_rate"
+      - "dependency_failure_rate"
+      - "operation_safety_rate"
+    
+    alerts:
+      min_success_rate: 95
+      max_average_check_time: 60
+      max_conflict_rate: 5
+      max_dependency_failure_rate: 2
+      
+# Operation-specific idempotency configurations
+idempotency_operation_configs:
+  vmware_vm_create:
+    checks:
+      - "vm_existence"
+      - "template_availability"
+      - "datastore_capacity"
+      - "network_availability"
+      - "resource_conflicts"
+      - "dependency_validation"
+    fail_on_existing: true
+    require_template: true
+    min_datastore_free_gb: 20
+    
+  vmware_vm_provision:
+    checks:
+      - "vm_existence"
+      - "template_availability"
+      - "datastore_capacity"
+      - "network_availability"
+      - "state_consistency"
+    fail_on_existing: false
+    allow_reconfiguration: true
+    
+  network_configuration:
+    checks:
+      - "network_existence"
+      - "vlan_availability"
+      - "ip_address_availability"
+      - "switch_connectivity"
+    fail_on_conflicts: true
+    
+  storage_configuration:
+    checks:
+      - "datastore_existence"
+      - "storage_capacity"
+      - "lun_availability"
+      - "storage_connectivity"
+    min_free_space_percent: 20
+    
+# Check type configurations
+idempotency_check_types:
+  resource_existence:
+    enabled: true
+    timeout_seconds: 60
+    retry_on_failure: true
+    max_retries: 3
+    
+  vm_existence:
+    enabled: true
+    timeout_seconds: 30
+    check_power_state: true
+    check_guest_tools: true
+    
+  template_availability:
+    enabled: true
+    timeout_seconds: 45
+    verify_template_status: true
+    check_template_permissions: true
+    
+  datastore_capacity:
+    enabled: true
+    timeout_seconds: 30
+    min_free_space_gb: 10
+    warn_threshold_percent: 80
+    critical_threshold_percent: 95
+    
+  network_availability:
+    enabled: true
+    timeout_seconds: 30
+    check_vlan_config: true
+    verify_connectivity: false
+    
+  state_consistency:
+    enabled: true
+    timeout_seconds: 60
+    check_previous_operations: true
+    validate_state_files: true
+    
+  dependency_validation:
+    enabled: true
+    timeout_seconds: 120
+    check_vcenter_connectivity: true
+    check_dns_resolution: false
+    check_ntp_sync: false
+    
+  conflict_detection:
+    enabled: true
+    timeout_seconds: 30
+    check_concurrent_operations: true
+    check_resource_locks: true
+    check_naming_conflicts: true
+    
+# VMware-specific configurations
+idempotency_vmware:
+  connection_timeout: 60
+  operation_timeout: 300
+  max_concurrent_operations: 3
+  
+  # Resource validation settings
+  validate_datacenter: true
+  validate_cluster: true
+  validate_resource_pool: true
+  validate_folder: true
+  
+  # VM-specific settings
+  vm_checks:
+    power_state_validation: true
+    guest_tools_validation: true
+    hardware_validation: true
+    network_validation: true
+    storage_validation: true
+    
+  # Template-specific settings
+  template_checks:
+    template_status_validation: true
+    template_permissions_validation: true
+    template_compatibility_validation: true
+    
+  # Network-specific settings
+  network_checks:
+    portgroup_validation: true
+    vlan_validation: true
+    switch_validation: true
+    
+  # Storage-specific settings
+  storage_checks:
+    datastore_accessibility: true
+    capacity_validation: true
+    performance_validation: false
+    
+# Error handling and recovery
+idempotency_error_handling:
+  # Continue on non-critical errors
+  continue_on_warnings: true
+  continue_on_info: true
+  
+  # Retry configuration for failed checks
+  retry_failed_checks: true
+  max_check_retries: 3
+  retry_delay_seconds: 5
+  
+  # Error classification
+  critical_errors:
+    - "authentication_error"
+    - "authorization_error"
+    - "resource_not_found"
+    - "insufficient_capacity"
+    - "template_not_found"
+    
+  warning_errors:
+    - "high_resource_usage"
+    - "configuration_mismatch"
+    - "performance_degradation"
+    
+  info_errors:
+    - "resource_already_exists"
+    - "state_already_consistent"
+    - "no_changes_required"
+    
+# Advanced features
+idempotency_advanced:
+  # Circuit breaker pattern
+  circuit_breaker:
+    enabled: false
+    failure_threshold: 5
+    recovery_timeout_seconds: 300
+    half_open_max_calls: 3
+    
+  # Bulkhead pattern
+  bulkhead:
+    enabled: false
+    max_concurrent_operations: 10
+    queue_size: 50
+    timeout_seconds: 600
+    
+  # Adaptive checking
+  adaptive_checking:
+    enabled: false
+    adjust_timeouts: true
+    learn_from_history: true
+    optimize_check_order: true
+    
+  # Custom check plugins
+  custom_checks:
+    enabled: false
+    plugin_directory: "/etc/ansible/idempotency_plugins"
+    load_custom_checks: []
+    
+# Integration context variables
+idempotency_integration_context:
+  # Call stack integration
+  call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+  call_stack_component: "{{ call_stack_current_component | default('') }}"
+  
+  # Retry manager integration
+  retry_session_id: "{{ retry_session_id | default('') }}"
+  retry_operation_id: "{{ retry_operation_id | default('') }}"
+  
+  # Output manager integration
+  output_session_id: "{{ output_session_id | default('') }}"
+  output_component: "{{ output_current_component | default('') }}"
+  
+  # AAP integration
+  aap_job_id: "{{ tower_job_id | default(awx_job_id) | default('') }}"
+  aap_workflow_id: "{{ tower_workflow_job_id | default(awx_workflow_job_id) | default('') }}"
+  aap_execution_environment: "{{ ansible_env.ANSIBLE_EXECUTION_ENVIRONMENT | default('default') }}"
+  
+# Output data structures
+idempotency_output_data:
+  # Session data structure
+  session_template:
+    session_id: ""
+    session_start: ""
+    session_end: ""
+    session_status: "initializing"
+    operations_checked: []
+    session_statistics:
+      total_operations: 0
+      safe_operations: 0
+      unsafe_operations: 0
+      idempotent_operations: 0
+      total_checks: 0
+      passed_checks: 0
+      failed_checks: 0
+      execution_time: 0
+      
+  # Operation data structure
+  operation_template:
+    operation_id: ""
+    operation_name: ""
+    session_id: ""
+    start_time: ""
+    end_time: ""
+    status: "checking"
+    idempotency_status: "unknown"
+    safe_to_execute: false
+    safe_to_retry: false
+    checks_performed: []
+    resource_conflicts: []
+    dependencies_satisfied: true
+    execution_time: 0
+    
+  # Check data structure
+  check_template:
+    check_id: ""
+    check_type: ""
+    check_phase: ""
+    start_time: ""
+    end_time: ""
+    status: "pending"
+    result: false
+    message: ""
+    severity: "info"
+    execution_time: 0
+    details: {}
+    
+# Formatting and display options
+idempotency_formatting:
+  # JSON output formatting
+  json_indent: 2
+  json_sort_keys: true
+  json_ensure_ascii: false
+  
+  # Display formatting
+  timestamp_format: "%Y-%m-%d %H:%M:%S UTC"
+  duration_format: "human_readable"  # options: seconds, human_readable
+  
+  # Summary formatting
+  summary_max_items: 10
+  summary_show_details: false
+  summary_show_conflicts: true
+  
+# Validation schemas (for configuration validation)
+idempotency_validation:
+  validate_configuration: false
+  schema_directory: "/etc/ansible/idempotency_schemas"
+  
+  # Required fields validation
+  required_fields:
+    operation:
+      - "idempotency_current_operation"
+      - "idempotency_component_context"
+    
+    vm_operation:
+      - "vm_name"
+      - "datacenter"
+    
+    network_operation:
+      - "network_name"
+      - "datacenter"
+    
+    storage_operation:
+      - "datastore_name"
+      - "datacenter"
+      
+# Compatibility settings
+idempotency_compatibility:
+  ansible_version_min: "2.12"
+  python_version_min: "3.8"
+  
+  # VMware compatibility
+  vcenter_version_min: "6.7"
+  esxi_version_min: "6.7"
+  
+  # AAP compatibility
+  aap_version_min: "2.4"
+  
+  # Feature flags for version compatibility
+  features:
+    advanced_vm_checks: true
+    network_validation: true
+    storage_validation: true
+    external_integration: true
+    circuit_breaker: false
+    adaptive_checking: false

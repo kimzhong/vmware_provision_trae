@@ -1,0 +1,333 @@
+---
+# AAP State Manager - State Synchronization Tasks
+# This file contains tasks for synchronizing state with AAP (Ansible Automation Platform)
+# Handles bidirectional state synchronization, conflict resolution, and consistency management
+
+- name: Initialize AAP state synchronization
+  set_fact:
+    aap_sync_start_time: "{{ ansible_date_time.iso8601 }}"
+    aap_sync_operation_id: "sync_{{ aap_state_sync_operation }}_{{ ansible_date_time.strftime('%Y%m%d_%H%M%S') }}"
+    aap_sync_status: "initializing"
+    aap_state_updates_count: 0
+    aap_sync_conflicts: []
+    aap_sync_resolutions: []
+  tags: ["aap_state", "synchronization"]
+
+- name: Retrieve current AAP platform information
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/config/"
+    method: GET
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200]
+  register: aap_platform_config
+  when: 
+    - aap_state_manager.aap_integration.enabled | default(true)
+    - aap_state_manager.aap_api.base_url is defined
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "platform_info"]
+
+- name: Extract AAP platform information
+  set_fact:
+    aap_platform_info:
+      version: "{{ aap_platform_config.json.version | default('unknown') }}"
+      controller_version: "{{ aap_platform_config.json.ansible_version | default('unknown') }}"
+      license_info: "{{ aap_platform_config.json.license_info | default({}) }}"
+      project_base_dir: "{{ aap_platform_config.json.project_base_dir | default('') }}"
+      custom_virtualenvs: "{{ aap_platform_config.json.custom_virtualenvs | default([]) }}"
+    aap_platform_status: "{{ 'connected' if aap_platform_config.status == 200 else 'disconnected' }}"
+  when: aap_platform_config is defined and aap_platform_config.status == 200
+  tags: ["aap_state", "platform_info"]
+
+- name: Set default platform info when API is unavailable
+  set_fact:
+    aap_platform_info:
+      version: "unknown"
+      controller_version: "unknown"
+      license_info: {}
+      project_base_dir: ""
+      custom_virtualenvs: []
+    aap_platform_status: "disconnected"
+  when: aap_platform_config is not defined or aap_platform_config.status != 200
+  tags: ["aap_state", "platform_info"]
+
+- name: Retrieve current job information
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/jobs/{{ aap_integration_context.aap_job_id }}/"
+    method: GET
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200]
+  register: aap_current_job
+  when:
+    - aap_integration_context.aap_job_id is defined
+    - aap_integration_context.aap_job_id != ''
+    - aap_state_manager.job_state_management.enabled | default(true)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "job_info"]
+
+- name: Extract current job state information
+  set_fact:
+    aap_job_state:
+      job_id: "{{ aap_current_job.json.id | default('') }}"
+      job_name: "{{ aap_current_job.json.name | default('') }}"
+      job_status: "{{ aap_current_job.json.status | default('unknown') }}"
+      job_type: "{{ aap_current_job.json.job_type | default('') }}"
+      created: "{{ aap_current_job.json.created | default('') }}"
+      started: "{{ aap_current_job.json.started | default('') }}"
+      finished: "{{ aap_current_job.json.finished | default('') }}"
+      elapsed: "{{ aap_current_job.json.elapsed | default(0) }}"
+      organization: "{{ aap_current_job.json.summary_fields.organization.name | default('') }}"
+      project: "{{ aap_current_job.json.summary_fields.project.name | default('') }}"
+      inventory: "{{ aap_current_job.json.summary_fields.inventory.name | default('') }}"
+      execution_environment: "{{ aap_current_job.json.summary_fields.execution_environment.name | default('default') }}"
+  when: aap_current_job is defined and aap_current_job.status == 200
+  tags: ["aap_state", "job_info"]
+
+- name: Retrieve workflow job information (if applicable)
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/workflow_jobs/{{ aap_integration_context.aap_workflow_id }}/"
+    method: GET
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200]
+  register: aap_current_workflow
+  when:
+    - aap_integration_context.aap_workflow_id is defined
+    - aap_integration_context.aap_workflow_id != ''
+    - aap_state_manager.workflow_state_management.enabled | default(true)
+    - aap_platform_status == 'connected'
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "workflow_info"]
+
+- name: Extract workflow state information
+  set_fact:
+    aap_workflow_state:
+      workflow_id: "{{ aap_current_workflow.json.id | default('') }}"
+      workflow_name: "{{ aap_current_workflow.json.name | default('') }}"
+      workflow_status: "{{ aap_current_workflow.json.status | default('unknown') }}"
+      created: "{{ aap_current_workflow.json.created | default('') }}"
+      started: "{{ aap_current_workflow.json.started | default('') }}"
+      finished: "{{ aap_current_workflow.json.finished | default('') }}"
+      elapsed: "{{ aap_current_workflow.json.elapsed | default(0) }}"
+      organization: "{{ aap_current_workflow.json.summary_fields.organization.name | default('') }}"
+      workflow_template: "{{ aap_current_workflow.json.summary_fields.workflow_job_template.name | default('') }}"
+  when: aap_current_workflow is defined and aap_current_workflow.status == 200
+  tags: ["aap_state", "workflow_info"]
+
+- name: Detect state conflicts with AAP platform
+  set_fact:
+    aap_sync_conflicts: "{{ aap_sync_conflicts + [{
+      'conflict_type': 'job_status_mismatch',
+      'local_state': aap_state_sync_context.expected_status | default('unknown'),
+      'platform_state': aap_job_state.job_status | default('unknown'),
+      'severity': 'warning',
+      'detected_at': ansible_date_time.iso8601
+    }] }}"
+  when:
+    - aap_job_state is defined
+    - aap_state_sync_context.expected_status is defined
+    - aap_job_state.job_status != aap_state_sync_context.expected_status
+    - aap_state_manager.conflict_detection.enabled | default(true)
+  tags: ["aap_state", "conflict_detection"]
+
+- name: Detect execution environment conflicts
+  set_fact:
+    aap_sync_conflicts: "{{ aap_sync_conflicts + [{
+      'conflict_type': 'execution_environment_mismatch',
+      'local_state': aap_integration_context.aap_execution_environment | default('default'),
+      'platform_state': aap_job_state.execution_environment | default('default'),
+      'severity': 'error',
+      'detected_at': ansible_date_time.iso8601
+    }] }}"
+  when:
+    - aap_job_state is defined
+    - aap_integration_context.aap_execution_environment is defined
+    - aap_job_state.execution_environment != aap_integration_context.aap_execution_environment
+    - aap_state_manager.conflict_detection.enabled | default(true)
+  tags: ["aap_state", "conflict_detection"]
+
+- name: Resolve state conflicts using configured strategy
+  include_tasks: resolve_state_conflicts.yml
+  vars:
+    conflicts_to_resolve: "{{ aap_sync_conflicts }}"
+    resolution_strategy: "{{ aap_state_manager.conflict_resolution.strategy | default('platform_wins') }}"
+  when:
+    - aap_sync_conflicts | length > 0
+    - aap_state_manager.conflict_resolution.enabled | default(true)
+  tags: ["aap_state", "conflict_resolution"]
+
+- name: Update local state with platform information
+  set_fact:
+    aap_state_local_updates:
+      platform_version: "{{ aap_platform_info.version }}"
+      controller_version: "{{ aap_platform_info.controller_version }}"
+      job_status: "{{ aap_job_state.job_status | default('unknown') }}"
+      workflow_status: "{{ aap_workflow_state.workflow_status | default('unknown') }}"
+      execution_environment: "{{ aap_job_state.execution_environment | default('default') }}"
+      organization: "{{ aap_job_state.organization | default('') }}"
+      project: "{{ aap_job_state.project | default('') }}"
+      inventory: "{{ aap_job_state.inventory | default('') }}"
+      last_sync: "{{ ansible_date_time.iso8601 }}"
+    aap_state_updates_count: "{{ aap_state_updates_count + 1 }}"
+  when: aap_state_manager.bidirectional_sync.update_local | default(true)
+  tags: ["aap_state", "local_update"]
+
+- name: Prepare platform state update payload
+  set_fact:
+    aap_platform_update_payload:
+      extra_vars:
+        component_state:
+          session_id: "{{ aap_state_session_id }}"
+          operation_id: "{{ aap_state_operation_id }}"
+          operation_name: "{{ aap_state_sync_operation }}"
+          component_context: "{{ aap_state_sync_context }}"
+          sync_timestamp: "{{ ansible_date_time.iso8601 }}"
+          integration_context:
+            call_stack_session_id: "{{ aap_integration_context.call_stack_session_id | default('') }}"
+            retry_session_id: "{{ aap_integration_context.retry_session_id | default('') }}"
+            output_session_id: "{{ aap_integration_context.output_session_id | default('') }}"
+            idempotency_session_id: "{{ aap_integration_context.idempotency_session_id | default('') }}"
+  when: aap_state_manager.bidirectional_sync.update_platform | default(true)
+  tags: ["aap_state", "platform_update"]
+
+- name: Update AAP job extra variables with component state
+  uri:
+    url: "{{ aap_state_manager.aap_api.base_url }}/api/v2/jobs/{{ aap_integration_context.aap_job_id }}/"
+    method: PATCH
+    headers:
+      Authorization: "{{ aap_state_manager.aap_api.auth_header }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ aap_platform_update_payload }}"
+    timeout: "{{ aap_state_manager.aap_api.timeout | default(30) }}"
+    status_code: [200, 202]
+  register: aap_platform_update_result
+  when:
+    - aap_integration_context.aap_job_id is defined
+    - aap_integration_context.aap_job_id != ''
+    - aap_state_manager.bidirectional_sync.update_platform | default(true)
+    - aap_platform_status == 'connected'
+    - aap_state_manager.job_state_management.allow_updates | default(false)
+  ignore_errors: true
+  no_log: "{{ aap_state_manager.security.no_log_api_calls | default(true) }}"
+  tags: ["aap_state", "platform_update"]
+
+- name: Update state update count
+  set_fact:
+    aap_state_updates_count: "{{ aap_state_updates_count + 1 }}"
+  when: aap_platform_update_result is defined and aap_platform_update_result.status in [200, 202]
+  tags: ["aap_state", "platform_update"]
+
+- name: Synchronize execution environment state
+  include_tasks: sync_execution_environment.yml
+  vars:
+    ee_sync_context: "{{ aap_state_sync_context }}"
+    ee_current_state: "{{ aap_job_state.execution_environment | default('default') }}"
+  when:
+    - aap_state_manager.execution_environment.sync_enabled | default(true)
+    - aap_job_state is defined
+  tags: ["aap_state", "execution_environment"]
+
+- name: Synchronize inventory state
+  include_tasks: sync_inventory_state.yml
+  vars:
+    inventory_sync_context: "{{ aap_state_sync_context }}"
+    inventory_current_state: "{{ aap_job_state.inventory | default('') }}"
+  when:
+    - aap_state_manager.inventory_sync.enabled | default(false)
+    - aap_job_state is defined
+    - aap_job_state.inventory != ''
+  tags: ["aap_state", "inventory"]
+
+- name: Validate state synchronization consistency
+  assert:
+    that:
+      - aap_sync_conflicts | selectattr('severity', 'equalto', 'error') | list | length == 0
+      - aap_state_updates_count >= 0
+    fail_msg: "State synchronization failed due to unresolved conflicts or update failures"
+    success_msg: "State synchronization completed successfully"
+  when: aap_state_manager.validation.strict_consistency | default(false)
+  tags: ["aap_state", "validation"]
+
+- name: Calculate synchronization statistics
+  set_fact:
+    aap_sync_end_time: "{{ ansible_date_time.iso8601 }}"
+    aap_sync_execution_time: "{{ ((ansible_date_time.epoch | float) - (aap_sync_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') | strftime('%s') | float)) | round(2) }}"
+    aap_sync_status: "completed"
+    aap_integration_status: "{{ 'synchronized' if aap_sync_conflicts | selectattr('severity', 'equalto', 'error') | list | length == 0 else 'conflicts_detected' }}"
+  tags: ["aap_state", "statistics"]
+
+- name: Create synchronization summary
+  set_fact:
+    aap_sync_summary:
+      sync_operation_id: "{{ aap_sync_operation_id }}"
+      operation_name: "{{ aap_state_sync_operation }}"
+      start_time: "{{ aap_sync_start_time }}"
+      end_time: "{{ aap_sync_end_time }}"
+      execution_time: "{{ aap_sync_execution_time }}"
+      status: "{{ aap_sync_status }}"
+      platform_status: "{{ aap_platform_status }}"
+      integration_status: "{{ aap_integration_status }}"
+      state_updates: "{{ aap_state_updates_count }}"
+      conflicts_detected: "{{ aap_sync_conflicts | length }}"
+      conflicts_resolved: "{{ aap_sync_resolutions | length }}"
+      platform_info:
+        version: "{{ aap_platform_info.version }}"
+        controller_version: "{{ aap_platform_info.controller_version }}"
+      job_info:
+        job_id: "{{ aap_job_state.job_id | default('') }}"
+        job_status: "{{ aap_job_state.job_status | default('unknown') }}"
+        execution_environment: "{{ aap_job_state.execution_environment | default('default') }}"
+      workflow_info:
+        workflow_id: "{{ aap_workflow_state.workflow_id | default('') }}"
+        workflow_status: "{{ aap_workflow_state.workflow_status | default('unknown') }}"
+  tags: ["aap_state", "summary"]
+
+- name: Display synchronization summary
+  debug:
+    msg:
+      - "AAP State Synchronization Summary:"
+      - "Operation: {{ aap_state_sync_operation }}"
+      - "Status: {{ aap_sync_status }}"
+      - "Platform Status: {{ aap_platform_status }}"
+      - "Integration Status: {{ aap_integration_status }}"
+      - "Execution Time: {{ aap_sync_execution_time }}s"
+      - "State Updates: {{ aap_state_updates_count }}"
+      - "Conflicts Detected: {{ aap_sync_conflicts | length }}"
+      - "Conflicts Resolved: {{ aap_sync_resolutions | length }}"
+      - "Platform Version: {{ aap_platform_info.version }}"
+      - "Job ID: {{ aap_job_state.job_id | default('N/A') }}"
+      - "Job Status: {{ aap_job_state.job_status | default('unknown') }}"
+  when: aap_state_manager.display_sync_summary | default(false)
+  tags: ["aap_state", "summary"]
+
+- name: Handle synchronization errors
+  block:
+    - name: Set synchronization failure status
+      set_fact:
+        aap_sync_status: "failed"
+        aap_integration_status: "synchronization_failed"
+        aap_sync_error: "{{ ansible_failed_result.msg | default('Unknown synchronization error') }}"
+        
+    - name: Log synchronization failure
+      debug:
+        msg: "AAP state synchronization failed: {{ aap_sync_error }}"
+        
+  rescue:
+    - name: Continue with degraded synchronization
+      debug:
+        msg: "Continuing with degraded AAP state synchronization"
+        
+  when: aap_sync_failed | default(false)
+  tags: ["aap_state", "error_handling"]

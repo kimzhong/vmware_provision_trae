@@ -1,0 +1,148 @@
+---
+################################################################################
+# Call Stack Manager Role
+#
+# This role manages call chain tracking across all deployment operations.
+# It provides centralized call stack management with the following features:
+# - Initialize call stack for each deployment session
+# - Track component execution order and dependencies
+# - Generate unique call chain identifiers
+# - Maintain execution context throughout workflow
+# - Integration with AAP artifacts for traceability
+#
+# Author: VMware Automation Team
+# Version: 2.0
+# Last Updated: {{ ansible_date_time.iso8601 }}
+################################################################################
+
+- name: "Call Stack Manager - Initialize session tracking"
+  debug:
+    msg: "Starting call stack management for session {{ call_stack_session_id | default('unknown') }}"
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Generate session ID if not provided"
+  set_fact:
+    call_stack_session_id: "{{ call_stack_manager.session_id_prefix | default('vm_deploy') }}_{{ ansible_date_time.epoch }}_{{ 999999 | random }}"
+  when: call_stack_session_id is not defined
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Initialize call stack data structure"
+  set_fact:
+    call_stack_data:
+      session_id: "{{ call_stack_session_id }}"
+      start_time: "{{ ansible_date_time.iso8601 }}"
+      deployment_context:
+        environment: "{{ env | default('unknown') }}"
+        location: "{{ location | default('unknown') }}"
+        vm_os: "{{ vm_os | default('unknown') }}"
+        domain: "{{ domain | default('unknown') }}"
+      call_chain: []
+      current_depth: 0
+      max_depth: "{{ call_stack_manager.max_stack_depth | default(10) }}"
+      status: "initialized"
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Add current component to call chain"
+  set_fact:
+    call_stack_data: "{{ call_stack_data | combine({
+      'call_chain': call_stack_data.call_chain + [{
+        'component': call_stack_current_component | default('call_stack_manager'),
+        'timestamp': ansible_date_time.iso8601,
+        'depth': call_stack_data.current_depth,
+        'status': 'started',
+        'host': inventory_hostname,
+        'user': ansible_user_id | default('unknown')
+      }],
+      'current_depth': call_stack_data.current_depth + 1,
+      'status': 'active'
+    }) }}"
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Validate stack depth"
+  fail:
+    msg: "Call stack depth exceeded maximum allowed depth of {{ call_stack_data.max_depth }}"
+  when: call_stack_data.current_depth > (call_stack_data.max_depth | int)
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Generate call chain identifier"
+  set_fact:
+    call_chain_id: "{{ call_stack_session_id }}_{{ call_stack_data.current_depth }}_{{ call_stack_current_component | default('unknown') }}"
+  tags:
+    - always
+    - call_stack
+
+- name: "Call Stack Manager - Create output directory if file output enabled"
+  file:
+    path: "{{ call_stack_manager.output_file | dirname }}"
+    state: directory
+    mode: '0755'
+  when: 
+    - call_stack_manager.output_file is defined
+    - call_stack_manager.output_file | length > 0
+  delegate_to: localhost
+  run_once: true
+  tags:
+    - call_stack
+    - output
+
+- name: "Call Stack Manager - Write call stack to file"
+  copy:
+    content: "{{ call_stack_data | to_nice_json }}"
+    dest: "{{ call_stack_manager.output_file | default('/tmp/call_stack_' + call_stack_session_id + '.json') }}"
+    mode: '0644'
+  when: call_stack_manager.output_file is defined or call_stack_manager.file_output | default(true)
+  delegate_to: localhost
+  run_once: true
+  tags:
+    - call_stack
+    - output
+
+- name: "Call Stack Manager - Register call chain information to AAP artifacts"
+  set_stats:
+    data:
+      call_stack_session_id: "{{ call_stack_session_id }}"
+      call_chain_id: "{{ call_chain_id }}"
+      call_stack_status: "{{ call_stack_data.status }}"
+      call_stack_depth: "{{ call_stack_data.current_depth }}"
+      call_stack_component: "{{ call_stack_current_component | default('call_stack_manager') }}"
+      call_stack_timestamp: "{{ ansible_date_time.iso8601 }}"
+      call_stack_data: "{{ call_stack_data }}"
+    per_host: false
+    aggregate: true
+  when: call_stack_manager.artifacts_integration | default(true)
+  tags:
+    - always
+    - call_stack
+    - aap_integration
+
+- name: "Call Stack Manager - Display call stack summary"
+  debug:
+    msg:
+      - "Call Stack Manager Summary:"
+      - "  Session ID: {{ call_stack_session_id }}"
+      - "  Call Chain ID: {{ call_chain_id }}"
+      - "  Current Depth: {{ call_stack_data.current_depth }}"
+      - "  Current Component: {{ call_stack_current_component | default('call_stack_manager') }}"
+      - "  Status: {{ call_stack_data.status }}"
+      - "  Total Components in Chain: {{ call_stack_data.call_chain | length }}"
+  tags:
+    - call_stack
+    - debug
+
+- name: "Call Stack Manager - Set global call stack variables"
+  set_fact:
+    call_stack_initialized: true
+    call_stack_session_active: true
+  tags:
+    - always
+    - call_stack

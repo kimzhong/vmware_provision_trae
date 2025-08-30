@@ -1,0 +1,371 @@
+---
+# Retry Manager Role - Default Variables
+# Comprehensive configuration for intelligent retry mechanisms in VMware VM provisioning
+
+# =============================================================================
+# Core Retry Configuration
+# =============================================================================
+
+# Session and identification settings
+retry_manager:
+  # Session ID prefix for retry operations
+  session_id_prefix: "retry"
+  
+  # Maximum number of retry attempts for any operation
+  max_attempts: 3
+  
+  # Retry policy: exponential_backoff, linear_backoff, fixed_delay
+  retry_policy: "exponential_backoff"
+  
+  # Base delay in seconds before first retry
+  base_delay: 5
+  
+  # Maximum delay in seconds between retries
+  max_delay: 300
+  
+  # Backoff multiplier for exponential backoff (default: 2.0 means delay doubles each time)
+  backoff_multiplier: 2.0
+  
+  # Enable jitter to prevent thundering herd problems
+  jitter_enabled: true
+  
+  # Jitter percentage (0.1 = 10% of calculated delay)
+  jitter_percentage: 0.1
+
+# =============================================================================
+# Retry Conditions and Error Handling
+# =============================================================================
+
+  # Error types that should trigger a retry
+  retry_conditions:
+    - "connection_error"
+    - "timeout"
+    - "temporary_failure"
+    - "network_error"
+    - "service_unavailable"
+    - "rate_limit_exceeded"
+    - "resource_busy"
+  
+  # Error types that should never be retried
+  non_retryable_conditions:
+    - "authentication_error"
+    - "authorization_error"
+    - "permission_error"
+    - "resource_not_found"
+    - "configuration_error"
+    - "invalid_parameter"
+    - "quota_exceeded"
+  
+  # Fail fast on non-retryable errors (don't wait for max attempts)
+  fail_fast_on_non_retryable: true
+  
+  # Fail the entire operation if final retry attempt fails
+  fail_on_final_error: true
+  
+  # Continue with next operations even if current operation fails
+  continue_on_failure: false
+
+# =============================================================================
+# File Output and Logging
+# =============================================================================
+
+  # Enable file output for retry session data
+  file_output: true
+  
+  # Directory for retry session files
+  output_dir: "/tmp/ansible_retry"
+  
+  # Log individual attempt details (can generate many files)
+  log_individual_attempts: false
+  
+  # Enable debug mode for verbose logging
+  debug_mode: false
+  
+  # Log file format: json, yaml
+  log_format: "json"
+  
+  # Enable log compression for large files
+  enable_compression: true
+  
+  # Compression threshold in bytes (1MB)
+  compression_threshold: 1048576
+
+# =============================================================================
+# AAP (Ansible Automation Platform) Integration
+# =============================================================================
+
+  # Enable AAP artifacts integration
+  artifacts_integration: true
+  
+  # Register retry statistics to AAP
+  register_statistics: true
+  
+  # Register individual attempt metrics
+  register_attempt_metrics: false
+  
+  # AAP job template integration
+  aap_job_integration: true
+  
+  # AAP workflow template integration
+  aap_workflow_integration: true
+
+# =============================================================================
+# External Systems Integration
+# =============================================================================
+
+  # Enable external systems integration (monitoring, alerting, etc.)
+  external_integration: false
+  
+  # External systems configuration
+  external_systems: []
+    # Example configuration:
+    # - name: "prometheus"
+    #   url: "https://prometheus.example.com/api/v1/write"
+    #   method: "POST"
+    #   auth_header: "Bearer your-token-here"
+    #   timeout: 30
+    #   enabled: true
+    #   retry_count: 2
+    #   retry_delay: 5
+    # - name: "slack_webhook"
+    #   url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    #   method: "POST"
+    #   timeout: 15
+    #   enabled: true
+  
+  # External system retry configuration
+  external_retry_attempts: 2
+  external_retry_delay: 5
+  external_timeout: 30
+
+# =============================================================================
+# Performance and Resource Management
+# =============================================================================
+
+  # Performance settings
+  performance:
+    # Maximum concurrent retry operations
+    max_concurrent_operations: 5
+    
+    # Memory limit for retry session data (in MB)
+    memory_limit: 100
+    
+    # Enable async processing for non-critical operations
+    async_processing: false
+    
+    # Batch size for bulk operations
+    batch_size: 10
+    
+    # Enable performance monitoring
+    enable_monitoring: true
+    
+    # Performance metrics collection interval (seconds)
+    metrics_interval: 60
+
+# =============================================================================
+# Data Retention and Cleanup
+# =============================================================================
+
+  # Data retention settings
+  retention:
+    # Number of days to keep retry session files
+    days: 7
+    
+    # Enable automatic cleanup of old files
+    auto_cleanup: true
+    
+    # Maximum number of retry session files per operation
+    max_files_per_operation: 50
+    
+    # Maximum total size of retry files (in MB)
+    max_total_size: 500
+    
+    # Cleanup schedule (cron format)
+    cleanup_schedule: "0 2 * * *"  # Daily at 2 AM
+
+# =============================================================================
+# Integration with Other Core Components
+# =============================================================================
+
+  # Integration settings with other version2 core components
+  integration:
+    # Call Stack Manager integration
+    call_stack_manager: true
+    
+    # Output Manager integration
+    output_manager: true
+    
+    # Idempotency Checker integration
+    idempotency_checker: true
+    
+    # AAP State Manager integration
+    aap_state_manager: true
+
+# =============================================================================
+# Operation-Specific Retry Configurations
+# =============================================================================
+
+  # Operation-specific retry settings (override defaults for specific operations)
+  operation_configs:
+    # VMware vCenter operations
+    vmware_vm_create:
+      max_attempts: 5
+      base_delay: 10
+      max_delay: 600
+      retry_policy: "exponential_backoff"
+      backoff_multiplier: 1.5
+    
+    vmware_vm_delete:
+      max_attempts: 3
+      base_delay: 5
+      max_delay: 300
+      retry_policy: "linear_backoff"
+    
+    vmware_vm_power_on:
+      max_attempts: 4
+      base_delay: 15
+      max_delay: 180
+      retry_policy: "exponential_backoff"
+    
+    vmware_vm_power_off:
+      max_attempts: 4
+      base_delay: 10
+      max_delay: 120
+      retry_policy: "exponential_backoff"
+    
+    # Network operations
+    network_configuration:
+      max_attempts: 3
+      base_delay: 8
+      max_delay: 240
+      retry_policy: "exponential_backoff"
+    
+    # Storage operations
+    storage_configuration:
+      max_attempts: 4
+      base_delay: 12
+      max_delay: 480
+      retry_policy: "exponential_backoff"
+      backoff_multiplier: 1.8
+    
+    # API calls
+    api_call:
+      max_attempts: 5
+      base_delay: 2
+      max_delay: 60
+      retry_policy: "exponential_backoff"
+      backoff_multiplier: 2.5
+
+# =============================================================================
+# Monitoring and Alerting
+# =============================================================================
+
+  # Monitoring configuration
+  monitoring:
+    # Enable retry operation monitoring
+    enabled: true
+    
+    # Metrics to collect
+    metrics:
+      - "success_rate"
+      - "average_retry_count"
+      - "total_execution_time"
+      - "error_distribution"
+      - "operation_throughput"
+    
+    # Alert thresholds
+    alerts:
+      # Alert if success rate drops below this percentage
+      min_success_rate: 85
+      
+      # Alert if average retry count exceeds this number
+      max_average_retries: 2.5
+      
+      # Alert if operation takes longer than this (seconds)
+      max_execution_time: 1800
+      
+      # Alert if error rate exceeds this percentage
+      max_error_rate: 15
+
+# =============================================================================
+# Security and Access Control
+# =============================================================================
+
+  # Security settings
+  security:
+    # Enable encryption for retry session files
+    encrypt_files: false
+    
+    # Encryption key (should be provided via vault)
+    encryption_key: ""
+    
+    # File permissions for retry session files
+    file_permissions: "0644"
+    
+    # Directory permissions for retry output directory
+    directory_permissions: "0755"
+    
+    # Enable access control logging
+    access_logging: true
+    
+    # Allowed users/groups for retry operations
+    allowed_users: []
+    allowed_groups: []
+
+# =============================================================================
+# Advanced Configuration
+# =============================================================================
+
+  # Advanced retry behavior
+  advanced:
+    # Enable circuit breaker pattern
+    circuit_breaker:
+      enabled: false
+      failure_threshold: 5
+      recovery_timeout: 300
+      half_open_max_calls: 3
+    
+    # Enable bulkhead pattern for resource isolation
+    bulkhead:
+      enabled: false
+      max_concurrent_calls: 10
+      max_wait_duration: 60
+    
+    # Enable adaptive retry (adjust retry parameters based on success rate)
+    adaptive_retry:
+      enabled: false
+      adjustment_interval: 300
+      min_success_rate: 80
+      adjustment_factor: 1.2
+    
+    # Custom retry strategies
+    custom_strategies: {}
+
+# =============================================================================
+# Context Variables (Set by calling playbooks/roles)
+# =============================================================================
+
+# Current operation being retried (set by caller)
+retry_current_operation: ""
+
+# Component context for the retry operation (set by caller)
+retry_component_context: {}
+
+# Deployment context (set by caller)
+retry_deployment_context:
+  environment: ""
+  location: ""
+  vm_os: ""
+  domain: ""
+
+# Call stack session ID from call_stack_manager (set by integration)
+call_stack_session_id: ""
+
+# Output session ID from output_manager (set by integration)
+output_session_id: ""
+
+# Idempotency check results (set by integration)
+idempotency_check_result: {}
+
+# AAP state information (set by integration)
+aap_state_context: {}
