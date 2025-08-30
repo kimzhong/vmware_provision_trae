@@ -1,0 +1,601 @@
+---
+# Comprehensive Example: VMware VM Provisioning with Version2 Core Components
+# This example demonstrates the full capabilities of the enhanced architecture
+# including all core components, advanced features, and best practices
+
+- name: "Comprehensive VMware VM Provisioning Example"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # === Example Configuration ===
+    example_config:
+      name: "comprehensive_vm_provisioning"
+      description: "Complete example showcasing all version2 features"
+      version: "2.0.0"
+      environment: "development"
+      
+    # === Target Environment ===
+    target_environment: "development"
+    debug_mode: true
+    
+    # === vCenter Configuration ===
+    vcenter_hostname: "vcenter.example.com"
+    vcenter_username: "administrator@vsphere.local"
+    vcenter_password: "{{ vault_vcenter_password }}"
+    vcenter_datacenter: "DC1"
+    vcenter_cluster: "Cluster1"
+    
+    # === VM Definitions ===
+    vm_definitions:
+      - name: "web-server-01"
+        template: "ubuntu-20.04-template"
+        datacenter: "{{ vcenter_datacenter }}"
+        cluster: "{{ vcenter_cluster }}"
+        folder: "/vm/web-servers"
+        resource_pool: "WebServers"
+        hardware:
+          memory_mb: 4096
+          num_cpus: 2
+          cores_per_socket: 1
+          scsi: "paravirtual"
+          hotadd_cpu: true
+          hotadd_memory: true
+        networks:
+          - name: "VM Network"
+            ip: "192.168.1.100"
+            netmask: "255.255.255.0"
+            gateway: "192.168.1.1"
+            dns_servers: ["8.8.8.8", "8.8.4.4"]
+        disks:
+          - size_gb: 50
+            type: "thin"
+            datastore: "datastore1"
+          - size_gb: 100
+            type: "thick"
+            datastore: "datastore2"
+        customization:
+          hostname: "web-server-01"
+          domain: "example.com"
+          timezone: "UTC"
+          
+      - name: "db-server-01"
+        template: "centos-8-template"
+        datacenter: "{{ vcenter_datacenter }}"
+        cluster: "{{ vcenter_cluster }}"
+        folder: "/vm/database-servers"
+        resource_pool: "DatabaseServers"
+        hardware:
+          memory_mb: 8192
+          num_cpus: 4
+          cores_per_socket: 2
+          scsi: "paravirtual"
+          hotadd_cpu: true
+          hotadd_memory: true
+        networks:
+          - name: "Database Network"
+            ip: "192.168.2.100"
+            netmask: "255.255.255.0"
+            gateway: "192.168.2.1"
+            dns_servers: ["8.8.8.8", "8.8.4.4"]
+        disks:
+          - size_gb: 100
+            type: "thick"
+            datastore: "datastore1"
+          - size_gb: 500
+            type: "thick"
+            datastore: "datastore3"
+        customization:
+          hostname: "db-server-01"
+          domain: "example.com"
+          timezone: "UTC"
+    
+    # === Network Definitions ===
+    network_definitions:
+      - name: "VM Network"
+        type: "standard"
+        vlan_id: 100
+        switch: "vSwitch0"
+      - name: "Database Network"
+        type: "distributed"
+        vlan_id: 200
+        switch: "dvSwitch0"
+        
+    # === Storage Definitions ===
+    storage_definitions:
+      - name: "datastore1"
+        type: "vmfs"
+        capacity_gb: 1000
+      - name: "datastore2"
+        type: "vmfs"
+        capacity_gb: 2000
+      - name: "datastore3"
+        type: "nfs"
+        server: "nfs.example.com"
+        path: "/exports/datastore3"
+        
+    # === Core Components Configuration ===
+    enable_call_stack_tracking: true
+    enable_output_management: true
+    enable_retry_management: true
+    enable_idempotency_checking: true
+    enable_aap_integration: false  # Set to true if using AAP
+    
+    # === Advanced Features ===
+    advanced_features:
+      enable_performance_monitoring: true
+      enable_security_scanning: true
+      enable_compliance_checking: true
+      enable_cost_optimization: true
+      enable_automated_testing: true
+      
+  pre_tasks:
+    - name: "Display Example Information"
+      debug:
+        msg:
+          - "=== Comprehensive VMware Provisioning Example ==="
+          - "Example: {{ example_config.name }}"
+          - "Version: {{ example_config.version }}"
+          - "Environment: {{ target_environment }}"
+          - "VMs to provision: {{ vm_definitions | length }}"
+          - "Networks to configure: {{ network_definitions | length }}"
+          - "Storage to configure: {{ storage_definitions | length }}"
+          - "Debug mode: {{ debug_mode }}"
+      tags: ["always", "info"]
+      
+    - name: "Validate Example Prerequisites"
+      assert:
+        that:
+          - vm_definitions is defined and vm_definitions | length > 0
+          - vcenter_hostname is defined
+          - vcenter_username is defined
+          - vcenter_password is defined
+        fail_msg: "Required variables for the example are missing"
+        success_msg: "All prerequisites validated successfully"
+      tags: ["always", "validation"]
+
+  tasks:
+    # === Initialize Core Components ===
+    - name: "Initialize Call Stack Manager"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_name: "{{ example_config.name }}"
+          operation_type: "comprehensive_example"
+          session_config:
+            auto_create_session: true
+            session_name: "example_{{ ansible_date_time.epoch }}"
+            track_performance: true
+            enable_debugging: "{{ debug_mode }}"
+            detailed_logging: true
+          integration:
+            enable_aap_integration: "{{ enable_aap_integration }}"
+            enable_external_monitoring: "{{ advanced_features.enable_performance_monitoring }}"
+      tags: ["always", "initialization", "call_stack"]
+      
+    - name: "Initialize Output Manager"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ example_config.name }}"
+            operation_type: "comprehensive_example"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          output_config:
+            formats: ["json", "yaml", "html"]
+            include_performance_data: true
+            include_debug_info: "{{ debug_mode }}"
+            enable_real_time_updates: true
+            comprehensive_reporting: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            enable_aap_artifacts: "{{ enable_aap_integration }}"
+      tags: ["always", "initialization", "output"]
+      
+    # === Environment Validation ===
+    - name: "Comprehensive Environment Validation"
+      include_role:
+        name: environment_validation
+      vars:
+        environment_validation:
+          validate_vcenter_connectivity: true
+          validate_permissions: true
+          validate_resources: true
+          validate_network_connectivity: true
+          validate_storage_availability: true
+          validation_config:
+            fail_on_warnings: false
+            detailed_reporting: true
+            comprehensive_checks: true
+      tags: ["validation", "environment"]
+      
+    # === Pre-Provisioning Idempotency Check ===
+    - name: "Pre-Provisioning Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ example_config.name }}"
+            operation_type: "comprehensive_example"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["vm_existence", "network_configuration", "storage_configuration"]
+            check_phases: ["pre_execution"]
+            detailed_analysis: true
+            conflict_detection: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "pre_check"]
+      
+    # === Network Configuration ===
+    - name: "Configure Networks with Enhanced Features"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "network_configuration"
+            operation_type: "infrastructure_setup"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 10
+            max_delay: 60
+            backoff_strategy: "exponential"
+            retry_on_failures: ["network_error", "resource_busy"]
+          target_operation:
+            playbook_path: "network_configuration.yml"
+            extra_vars:
+              network_definitions: "{{ network_definitions }}"
+              vcenter_hostname: "{{ vcenter_hostname }}"
+              vcenter_username: "{{ vcenter_username }}"
+              vcenter_password: "{{ vcenter_password }}"
+              vcenter_datacenter: "{{ vcenter_datacenter }}"
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["configuration", "network", "retry"]
+      
+    # === Storage Configuration ===
+    - name: "Configure Storage with Enhanced Features"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "storage_configuration"
+            operation_type: "infrastructure_setup"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 20
+            max_delay: 120
+            backoff_strategy: "exponential"
+            retry_on_failures: ["storage_error", "resource_busy"]
+          target_operation:
+            playbook_path: "storage_configuration.yml"
+            extra_vars:
+              storage_definitions: "{{ storage_definitions }}"
+              vcenter_hostname: "{{ vcenter_hostname }}"
+              vcenter_username: "{{ vcenter_username }}"
+              vcenter_password: "{{ vcenter_password }}"
+              vcenter_datacenter: "{{ vcenter_datacenter }}"
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["configuration", "storage", "retry"]
+      
+    # === VM Provisioning ===
+    - name: "Provision VMs with Enhanced Features"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "vm_provisioning"
+            operation_type: "vm_creation"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 30
+            max_delay: 300
+            backoff_strategy: "exponential"
+            retry_on_failures: ["vm_creation_error", "resource_busy", "template_error"]
+          target_operation:
+            playbook_path: "vm_provision.yml"
+            extra_vars:
+              vm_definitions: "{{ vm_definitions }}"
+              vcenter_hostname: "{{ vcenter_hostname }}"
+              vcenter_username: "{{ vcenter_username }}"
+              vcenter_password: "{{ vcenter_password }}"
+              vcenter_datacenter: "{{ vcenter_datacenter }}"
+              vcenter_cluster: "{{ vcenter_cluster }}"
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["provisioning", "vm", "retry"]
+      
+    # === Advanced Feature: Security Scanning ===
+    - name: "Perform Security Scanning"
+      include_role:
+        name: vmware_security_scanner
+      vars:
+        vmware_security_scanner:
+          scan_targets: "{{ vm_definitions }}"
+          scan_config:
+            scan_vm_configuration: true
+            scan_network_security: true
+            scan_storage_security: true
+            scan_access_controls: true
+            generate_security_report: true
+          vcenter_config:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+      when: advanced_features.enable_security_scanning | default(false)
+      tags: ["security", "scanning", "advanced"]
+      
+    # === Advanced Feature: Compliance Checking ===
+    - name: "Perform Compliance Checking"
+      include_role:
+        name: vmware_compliance_checker
+      vars:
+        vmware_compliance_checker:
+          compliance_targets: "{{ vm_definitions }}"
+          compliance_config:
+            check_security_policies: true
+            check_resource_allocation: true
+            check_naming_conventions: true
+            check_backup_policies: true
+            generate_compliance_report: true
+          vcenter_config:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+      when: advanced_features.enable_compliance_checking | default(false)
+      tags: ["compliance", "checking", "advanced"]
+      
+    # === Advanced Feature: Cost Optimization ===
+    - name: "Perform Cost Optimization Analysis"
+      include_role:
+        name: vmware_cost_optimizer
+      vars:
+        vmware_cost_optimizer:
+          optimization_targets: "{{ vm_definitions }}"
+          optimization_config:
+            analyze_resource_utilization: true
+            recommend_rightsizing: true
+            analyze_storage_costs: true
+            recommend_power_management: true
+            generate_cost_report: true
+          vcenter_config:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+      when: advanced_features.enable_cost_optimization | default(false)
+      tags: ["cost", "optimization", "advanced"]
+      
+    # === Advanced Feature: Automated Testing ===
+    - name: "Perform Automated Testing"
+      include_role:
+        name: vmware_automated_tester
+      vars:
+        vmware_automated_tester:
+          test_targets: "{{ vm_definitions }}"
+          test_config:
+            test_vm_functionality: true
+            test_network_connectivity: true
+            test_storage_performance: true
+            test_application_deployment: true
+            generate_test_report: true
+          vcenter_config:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+      when: advanced_features.enable_automated_testing | default(false)
+      tags: ["testing", "automation", "advanced"]
+      
+    # === Post-Provisioning Validation ===
+    - name: "Post-Provisioning Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ example_config.name }}"
+            operation_type: "comprehensive_example"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["vm_configuration", "network_configuration", "storage_configuration"]
+            check_phases: ["post_execution"]
+            detailed_analysis: true
+            generate_compliance_report: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "post_check"]
+      
+    # === Final Verification ===
+    - name: "Comprehensive State Verification"
+      include_role:
+        name: vmware_state_check
+      vars:
+        vmware_state_check:
+          check_type: "comprehensive_verification"
+          vm_definitions: "{{ vm_definitions }}"
+          network_definitions: "{{ network_definitions }}"
+          storage_definitions: "{{ storage_definitions }}"
+          verification_config:
+            verify_vm_state: true
+            verify_network_configuration: true
+            verify_storage_configuration: true
+            verify_performance_metrics: true
+            detailed_verification: true
+      tags: ["verification", "comprehensive"]
+      
+    # === Status Tracking ===
+    - name: "Update Comprehensive Status"
+      include_role:
+        name: status_tracking
+      vars:
+        status_tracking:
+          operation_name: "{{ example_config.name }}"
+          operation_status: "completed"
+          vm_status_list: "{{ provisioned_vms | default([]) }}"
+          network_status_list: "{{ configured_networks | default([]) }}"
+          storage_status_list: "{{ configured_storage | default([]) }}"
+          tracking_config:
+            detailed_status: true
+            include_performance_metrics: true
+            include_security_status: true
+            include_compliance_status: true
+            enable_external_updates: "{{ advanced_features.enable_performance_monitoring }}"
+      tags: ["status", "tracking"]
+      
+    # === AAP State Management (if enabled) ===
+    - name: "AAP State Synchronization"
+      include_role:
+        name: aap_state_manager
+      vars:
+        aap_state_manager:
+          enabled: "{{ enable_aap_integration }}"
+          operation_context:
+            operation_name: "{{ example_config.name }}"
+            operation_type: "comprehensive_example"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          state_synchronization:
+            enabled: true
+            mode: "bidirectional"
+            sync_job_status: true
+            sync_execution_environment: true
+            sync_vm_configuration: true
+            sync_network_configuration: true
+            sync_storage_configuration: true
+          aap_integration:
+            register_artifacts: true
+            update_job_status: true
+            track_performance: true
+            include_comprehensive_data: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: enable_aap_integration | default(false)
+      tags: ["aap", "state_sync", "integration"]
+
+  post_tasks:
+    # === Generate Comprehensive Report ===
+    - name: "Generate Comprehensive Final Report"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ example_config.name }}"
+            operation_type: "comprehensive_example"
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          output_config:
+            generate_final_report: true
+            include_all_sessions: true
+            formats: ["json", "yaml", "html", "pdf"]
+            include_performance_summary: true
+            include_error_analysis: true
+            include_security_analysis: "{{ advanced_features.enable_security_scanning }}"
+            include_compliance_analysis: "{{ advanced_features.enable_compliance_checking }}"
+            include_cost_analysis: "{{ advanced_features.enable_cost_optimization }}"
+            include_test_results: "{{ advanced_features.enable_automated_testing }}"
+            comprehensive_reporting: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["always", "output", "final_report"]
+      
+    # === Session Cleanup ===
+    - name: "Finalize Comprehensive Session"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_context:
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          session_config:
+            finalize_session: true
+            generate_session_summary: true
+            cleanup_temporary_data: true
+            archive_session_data: true
+            comprehensive_cleanup: true
+          integration:
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+      tags: ["always", "cleanup", "finalization"]
+      
+    - name: "Display Comprehensive Example Summary"
+      debug:
+        msg:
+          - "=== Comprehensive Example Completed ==="
+          - "Example: {{ example_config.name }} v{{ example_config.version }}"
+          - "Environment: {{ target_environment }}"
+          - "Session ID: {{ call_stack_session_id | default('N/A') }}"
+          - "VMs Requested: {{ vm_definitions | length }}"
+          - "VMs Provisioned: {{ provisioned_vms | length if provisioned_vms is defined else 0 }}"
+          - "Networks Configured: {{ configured_networks | length if configured_networks is defined else 0 }}"
+          - "Storage Configured: {{ configured_storage | length if configured_storage is defined else 0 }}"
+          - "Security Scan: {{ 'Completed' if advanced_features.enable_security_scanning else 'Skipped' }}"
+          - "Compliance Check: {{ 'Completed' if advanced_features.enable_compliance_checking else 'Skipped' }}"
+          - "Cost Analysis: {{ 'Completed' if advanced_features.enable_cost_optimization else 'Skipped' }}"
+          - "Automated Testing: {{ 'Completed' if advanced_features.enable_automated_testing else 'Skipped' }}"
+          - "Duration: {{ ansible_date_time.iso8601 }}"
+          - "Status: {{ 'SUCCESS' if ansible_failed_result is not defined else 'FAILED' }}"
+      tags: ["always", "summary"]
+
+  handlers:
+    - name: "Emergency Comprehensive Cleanup"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          emergency_cleanup: true
+          session_id: "{{ call_stack_session_id | default('') }}"
+          cleanup_config:
+            cleanup_vm_resources: true
+            cleanup_network_resources: true
+            cleanup_storage_resources: true
+            comprehensive_cleanup: true
+      listen: "emergency_cleanup"
+      
+    - name: "Comprehensive Rollback"
+      debug:
+        msg:
+          - "ROLLBACK INITIATED: Comprehensive example rollback"
+          - "Session ID: {{ call_stack_session_id | default('N/A') }}"
+          - "Timestamp: {{ ansible_date_time.iso8601 }}"
+          - "Rolling back all provisioned resources"
+      listen: "comprehensive_rollback"
+
+# === Example Metadata ===
+# Version: 2.0.0
+# Description: Comprehensive example showcasing all version2 core components and advanced features
+# Dependencies: All core components, advanced feature roles
+# Use Case: Complete demonstration of enhanced VMware provisioning capabilities
+# Compatibility: Ansible 2.12+, AAP 4.0+, vSphere 7.0+
+# Last Updated: 2024-01-15

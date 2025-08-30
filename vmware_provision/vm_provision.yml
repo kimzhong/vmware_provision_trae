@@ -1,0 +1,345 @@
+---
+# VMware VM Provisioning Playbook
+# This playbook handles the complete VM provisioning workflow with version2 core components
+
+- name: "VMware VM Provisioning with Enhanced Architecture"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # Playbook Configuration
+    playbook_name: "vm_provision"
+    playbook_version: "2.0.0"
+    operation_type: "vm_provisioning"
+    
+    # Core Components Integration
+    enable_call_stack_tracking: true
+    enable_retry_management: true
+    enable_output_management: true
+    enable_idempotency_checking: true
+    enable_aap_integration: true
+    
+    # VM Provisioning Configuration
+    vm_provision_config:
+      validate_environment: true
+      check_prerequisites: true
+      enable_state_tracking: true
+      enable_rollback: true
+      
+    # Performance and Reliability
+    performance_config:
+      parallel_operations: true
+      max_concurrent_vms: 5
+      operation_timeout: 1800
+      enable_caching: true
+      
+    # Integration Settings
+    integration_config:
+      aap_integration: true
+      external_monitoring: true
+      audit_logging: true
+      
+  pre_tasks:
+    - name: "Display Playbook Information"
+      debug:
+        msg:
+          - "=== VMware VM Provisioning Playbook ==="
+          - "Version: {{ playbook_version }}"
+          - "Operation: {{ operation_type }}"
+          - "Timestamp: {{ ansible_date_time.iso8601 }}"
+          - "Target Environment: {{ target_environment | default('development') }}"
+          - "VM Count: {{ vm_definitions | length if vm_definitions is defined else 'Not specified' }}"
+      tags: ["always", "info"]
+    
+    - name: "Validate Required Variables"
+      assert:
+        that:
+          - vm_definitions is defined
+          - vm_definitions | length > 0
+          - vcenter_hostname is defined
+          - vcenter_username is defined
+          - vcenter_password is defined
+        fail_msg: "Required variables for VM provisioning are missing"
+        success_msg: "All required variables are present"
+      tags: ["always", "validation"]
+
+  tasks:
+    # === Core Component Initialization ===
+    - name: "Initialize Call Stack Manager"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_name: "{{ playbook_name }}"
+          operation_type: "{{ operation_type }}"
+          session_config:
+            auto_create_session: true
+            session_name: "vm_provision_{{ ansible_date_time.epoch }}"
+            track_performance: true
+            enable_debugging: "{{ debug_mode | default(false) }}"
+          integration:
+            enable_aap_integration: "{{ enable_aap_integration }}"
+            enable_external_monitoring: "{{ integration_config.external_monitoring }}"
+      tags: ["always", "initialization", "call_stack"]
+    
+    - name: "Initialize Output Manager"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          output_config:
+            formats: ["json", "yaml", "html"]
+            include_performance_data: true
+            include_debug_info: "{{ debug_mode | default(false) }}"
+            enable_real_time_updates: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            enable_aap_artifacts: "{{ enable_aap_integration }}"
+      tags: ["always", "initialization", "output"]
+    
+    # === Environment Validation ===
+    - name: "Environment Validation and Prerequisites"
+      include_role:
+        name: environment_validation
+      vars:
+        environment_validation:
+          validate_vcenter_connectivity: true
+          validate_credentials: true
+          validate_permissions: true
+          validate_resources: true
+          validation_config:
+            fail_on_warnings: false
+            detailed_reporting: true
+      when: vm_provision_config.validate_environment | default(true)
+      tags: ["validation", "environment"]
+    
+    # === Idempotency Checking ===
+    - name: "Pre-Provisioning Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["vm_existence", "resource_availability", "configuration_drift"]
+            check_phases: ["pre_execution"]
+            detailed_analysis: true
+            conflict_detection: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "pre_check"]
+    
+    # === VM State Checking ===
+    - name: "Check Existing VM States"
+      include_role:
+        name: vmware_state_check
+      vars:
+        vmware_state_check:
+          vm_list: "{{ vm_definitions }}"
+          check_config:
+            detailed_state_analysis: true
+            check_resource_allocation: true
+            validate_configuration: true
+      tags: ["validation", "state_check"]
+    
+    # === VM Provisioning with Retry Management ===
+    - name: "VM Provisioning with Retry Logic"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "vm_provisioning"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 30
+            max_delay: 300
+            backoff_strategy: "exponential"
+            retry_on_failures: ["network_error", "resource_unavailable", "temporary_failure"]
+          target_operation:
+            role_name: "vmware_vm_provision"
+            role_vars:
+              vm_definitions: "{{ vm_definitions }}"
+              vcenter_config:
+                hostname: "{{ vcenter_hostname }}"
+                username: "{{ vcenter_username }}"
+                password: "{{ vcenter_password }}"
+                datacenter: "{{ vcenter_datacenter | default('') }}"
+                cluster: "{{ vcenter_cluster | default('') }}"
+              provisioning_config:
+                parallel_provisioning: "{{ performance_config.parallel_operations }}"
+                max_concurrent: "{{ performance_config.max_concurrent_vms }}"
+                timeout: "{{ performance_config.operation_timeout }}"
+                enable_validation: true
+                enable_post_checks: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["provisioning", "vm_creation", "retry"]
+    
+    # === Post-Provisioning Validation ===
+    - name: "Post-Provisioning Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["vm_state", "resource_allocation", "configuration_compliance"]
+            check_phases: ["post_execution"]
+            detailed_analysis: true
+            generate_compliance_report: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "post_check"]
+    
+    # === Status Tracking ===
+    - name: "Update VM Provisioning Status"
+      include_role:
+        name: status_tracking
+      vars:
+        status_tracking:
+          operation_name: "{{ playbook_name }}"
+          operation_status: "completed"
+          vm_status_list: "{{ provisioned_vms | default([]) }}"
+          tracking_config:
+            detailed_status: true
+            include_performance_metrics: true
+            enable_external_updates: "{{ integration_config.external_monitoring }}"
+      tags: ["status", "tracking"]
+    
+    # === AAP State Management ===
+    - name: "AAP State Synchronization"
+      include_role:
+        name: aap_state_manager
+      vars:
+        aap_state_manager:
+          enabled: "{{ enable_aap_integration }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          state_synchronization:
+            enabled: true
+            mode: "bidirectional"
+            sync_job_status: true
+            sync_execution_environment: true
+          aap_integration:
+            register_artifacts: true
+            update_job_status: true
+            track_performance: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: enable_aap_integration | default(false)
+      tags: ["aap", "state_sync", "integration"]
+
+  post_tasks:
+    # === Final Output Generation ===
+    - name: "Generate Final Output Report"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          output_config:
+            generate_final_report: true
+            include_all_sessions: true
+            formats: ["json", "yaml", "html"]
+            include_performance_summary: true
+            include_error_analysis: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["always", "output", "final_report"]
+    
+    # === Session Cleanup ===
+    - name: "Finalize Call Stack Session"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_context:
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          session_config:
+            finalize_session: true
+            generate_session_summary: true
+            cleanup_temporary_data: true
+            archive_session_data: true
+          integration:
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+      tags: ["always", "cleanup", "finalization"]
+    
+    - name: "Display Provisioning Summary"
+      debug:
+        msg:
+          - "=== VM Provisioning Completed ==="
+          - "Playbook: {{ playbook_name }} v{{ playbook_version }}"
+          - "Operation Type: {{ operation_type }}"
+          - "Session ID: {{ call_stack_session_id | default('N/A') }}"
+          - "VMs Requested: {{ vm_definitions | length if vm_definitions is defined else 0 }}"
+          - "VMs Provisioned: {{ provisioned_vms | length if provisioned_vms is defined else 0 }}"
+          - "Duration: {{ ansible_date_time.iso8601 }}"
+          - "Status: {{ 'SUCCESS' if ansible_failed_result is not defined else 'FAILED' }}"
+      tags: ["always", "summary"]
+
+  handlers:
+    - name: "Emergency Cleanup"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          emergency_cleanup: true
+          session_id: "{{ call_stack_session_id | default('') }}"
+      listen: "emergency_cleanup"
+    
+    - name: "Rollback VM Provisioning"
+      include_role:
+        name: vmware_vm_provision
+      vars:
+        vmware_vm_provision:
+          operation_mode: "rollback"
+          rollback_config:
+            target_vms: "{{ failed_vms | default([]) }}"
+            cleanup_resources: true
+            restore_state: true
+      listen: "rollback_provisioning"
+      when: vm_provision_config.enable_rollback | default(true)
+
+# === Playbook Metadata ===
+# Version: 2.0.0
+# Description: Enhanced VMware VM provisioning with version2 core components
+# Dependencies: call_stack_manager, output_manager, retry_manager, idempotency_checker, aap_state_manager
+# Compatibility: Ansible 2.12+, AAP 4.0+
+# Last Updated: 2024-01-15

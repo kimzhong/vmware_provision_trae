@@ -1,0 +1,356 @@
+---
+# Enhanced Call Chain Tracking and State Management Configuration
+# This file defines global settings for call chain tracking and state management
+# across all VMware provisioning operations
+
+# === Global Call Chain Tracking Configuration ===
+call_chain_tracking:
+  # Core Configuration
+  enabled: true
+  global_session_tracking: true
+  cross_playbook_tracking: true
+  detailed_performance_tracking: true
+  
+  # Session Management
+  session_config:
+    auto_create_sessions: true
+    session_naming_pattern: "{{ operation_type }}_{{ ansible_date_time.epoch }}_{{ inventory_hostname | default('localhost') }}"
+    session_timeout: 7200  # 2 hours
+    enable_session_persistence: true
+    session_storage_path: "/tmp/ansible_sessions"
+    enable_session_cleanup: true
+    cleanup_retention_days: 7
+    
+  # Call Stack Configuration
+  call_stack_config:
+    max_stack_depth: 50
+    track_role_calls: true
+    track_task_calls: true
+    track_handler_calls: true
+    track_include_calls: true
+    track_import_calls: true
+    enable_call_timing: true
+    enable_memory_tracking: true
+    enable_resource_tracking: true
+    
+  # Performance Tracking
+  performance_tracking:
+    enabled: true
+    track_execution_time: true
+    track_memory_usage: true
+    track_cpu_usage: true
+    track_network_io: true
+    track_disk_io: true
+    sampling_interval: 5  # seconds
+    enable_performance_alerts: true
+    performance_thresholds:
+      max_execution_time: 3600  # 1 hour
+      max_memory_usage_mb: 2048
+      max_cpu_usage_percent: 80
+      
+  # Cross-Component Integration
+  integration_config:
+    enable_output_manager_integration: true
+    enable_retry_manager_integration: true
+    enable_idempotency_checker_integration: true
+    enable_aap_state_manager_integration: true
+    enable_external_monitoring_integration: true
+    
+  # Data Collection
+  data_collection:
+    collect_variable_changes: true
+    collect_fact_changes: true
+    collect_inventory_changes: true
+    collect_environment_changes: true
+    collect_error_details: true
+    collect_debug_information: true
+    
+  # Output Configuration
+  output_config:
+    enable_real_time_output: true
+    output_formats: ["json", "yaml"]
+    include_call_graph: true
+    include_performance_metrics: true
+    include_error_analysis: true
+    output_compression: true
+    
+# === Enhanced State Management Configuration ===
+enhanced_state_management:
+  # Core Configuration
+  enabled: true
+  global_state_tracking: true
+  cross_operation_state_sync: true
+  state_versioning: true
+  
+  # State Storage Configuration
+  state_storage:
+    storage_backend: "file"  # file, redis, database
+    storage_path: "/tmp/ansible_state"
+    enable_encryption: true
+    encryption_key_source: "environment"  # environment, file, vault
+    enable_compression: true
+    compression_algorithm: "gzip"
+    
+  # State Synchronization
+  state_synchronization:
+    enabled: true
+    sync_mode: "real_time"  # real_time, batch, manual
+    sync_interval: 30  # seconds for batch mode
+    conflict_resolution: "timestamp_priority"  # timestamp_priority, manual_review, merge
+    enable_conflict_detection: true
+    
+  # State Validation
+  state_validation:
+    enabled: true
+    validate_on_read: true
+    validate_on_write: true
+    validation_schema_path: "schemas/state_validation.json"
+    strict_validation: false
+    
+  # State History
+  state_history:
+    enabled: true
+    max_history_entries: 100
+    history_retention_days: 30
+    enable_history_compression: true
+    
+  # State Backup
+  state_backup:
+    enabled: true
+    backup_interval: 300  # 5 minutes
+    max_backup_files: 50
+    backup_path: "/tmp/ansible_state_backup"
+    enable_backup_verification: true
+    
+# === VMware-Specific State Tracking ===
+vmware_state_tracking:
+  # VM State Tracking
+  vm_state_tracking:
+    enabled: true
+    track_power_state: true
+    track_configuration_changes: true
+    track_resource_allocation: true
+    track_network_configuration: true
+    track_storage_configuration: true
+    track_snapshot_state: true
+    
+  # Infrastructure State Tracking
+  infrastructure_state_tracking:
+    enabled: true
+    track_host_state: true
+    track_cluster_state: true
+    track_datacenter_state: true
+    track_network_state: true
+    track_storage_state: true
+    track_resource_pool_state: true
+    
+  # vCenter State Tracking
+  vcenter_state_tracking:
+    enabled: true
+    track_connection_state: true
+    track_session_state: true
+    track_permission_state: true
+    track_license_state: true
+    track_service_state: true
+    
+# === Integration with Core Components ===
+core_component_integration:
+  # Call Stack Manager Integration
+  call_stack_manager:
+    enable_enhanced_tracking: true
+    track_cross_playbook_calls: true
+    enable_call_graph_generation: true
+    enable_performance_correlation: true
+    
+  # Output Manager Integration
+  output_manager:
+    enable_call_chain_outputs: true
+    include_call_chain_in_reports: true
+    enable_call_chain_visualization: true
+    
+  # Retry Manager Integration
+  retry_manager:
+    track_retry_chains: true
+    correlate_retry_with_call_chain: true
+    enable_retry_pattern_analysis: true
+    
+  # Idempotency Checker Integration
+  idempotency_checker:
+    track_idempotency_chains: true
+    correlate_idempotency_with_state: true
+    enable_idempotency_pattern_analysis: true
+    
+  # AAP State Manager Integration
+  aap_state_manager:
+    sync_call_chain_with_aap: true
+    include_call_chain_in_artifacts: true
+    enable_aap_call_chain_visualization: true
+    
+# === Monitoring and Alerting ===
+monitoring_and_alerting:
+  # Monitoring Configuration
+  monitoring:
+    enabled: true
+    monitor_call_chain_health: true
+    monitor_state_consistency: true
+    monitor_performance_metrics: true
+    monitoring_interval: 60  # seconds
+    
+  # Alerting Configuration
+  alerting:
+    enabled: true
+    alert_on_call_chain_errors: true
+    alert_on_state_inconsistencies: true
+    alert_on_performance_degradation: true
+    alert_channels: ["log", "email", "webhook"]
+    
+  # Health Checks
+  health_checks:
+    enabled: true
+    check_call_chain_integrity: true
+    check_state_consistency: true
+    check_component_connectivity: true
+    health_check_interval: 300  # 5 minutes
+    
+# === Security Configuration ===
+security_config:
+  # Data Security
+  data_security:
+    encrypt_sensitive_data: true
+    mask_sensitive_variables: true
+    secure_state_storage: true
+    enable_access_logging: true
+    
+  # Access Control
+  access_control:
+    enable_rbac: true
+    require_authentication: false  # Set to true in production
+    session_based_access: true
+    
+  # Audit Configuration
+  audit_config:
+    enabled: true
+    audit_call_chain_access: true
+    audit_state_modifications: true
+    audit_configuration_changes: true
+    audit_log_retention_days: 90
+    
+# === Advanced Features ===
+advanced_features:
+  # Machine Learning Integration
+  ml_integration:
+    enabled: false  # Experimental feature
+    pattern_recognition: true
+    anomaly_detection: true
+    predictive_analysis: true
+    
+  # Analytics
+  analytics:
+    enabled: true
+    call_pattern_analysis: true
+    performance_trend_analysis: true
+    error_pattern_analysis: true
+    
+  # Optimization
+  optimization:
+    enabled: true
+    auto_optimize_call_chains: true
+    cache_optimization: true
+    resource_optimization: true
+    
+# === Development and Debugging ===
+development_config:
+  # Debug Configuration
+  debug_config:
+    enable_debug_mode: false
+    verbose_logging: false
+    trace_execution: false
+    dump_call_stacks: false
+    
+  # Testing Configuration
+  testing_config:
+    enable_test_mode: false
+    mock_external_calls: false
+    simulate_failures: false
+    
+  # Profiling Configuration
+  profiling_config:
+    enable_profiling: false
+    profile_memory_usage: false
+    profile_cpu_usage: false
+    profile_io_operations: false
+    
+# === Environment-Specific Overrides ===
+environment_overrides:
+  development:
+    call_chain_tracking:
+      enabled: true
+      detailed_performance_tracking: true
+    enhanced_state_management:
+      state_validation:
+        strict_validation: false
+    debug_config:
+      enable_debug_mode: true
+      verbose_logging: true
+      
+  staging:
+    call_chain_tracking:
+      enabled: true
+      detailed_performance_tracking: true
+    enhanced_state_management:
+      state_validation:
+        strict_validation: true
+    monitoring_and_alerting:
+      alerting:
+        enabled: true
+        
+  production:
+    call_chain_tracking:
+      enabled: true
+      detailed_performance_tracking: false
+    enhanced_state_management:
+      state_validation:
+        strict_validation: true
+    security_config:
+      access_control:
+        require_authentication: true
+    monitoring_and_alerting:
+      alerting:
+        enabled: true
+        alert_channels: ["log", "email", "webhook", "pagerduty"]
+        
+# === Compatibility Configuration ===
+compatibility_config:
+  # Ansible Compatibility
+  ansible_compatibility:
+    min_ansible_version: "2.12"
+    max_ansible_version: "2.16"
+    supported_python_versions: ["3.8", "3.9", "3.10", "3.11"]
+    
+  # AAP Compatibility
+  aap_compatibility:
+    min_aap_version: "4.0"
+    supported_execution_environments: ["ee-supported-rhel8", "ee-minimal-rhel8"]
+    
+  # VMware Compatibility
+  vmware_compatibility:
+    min_vcenter_version: "7.0"
+    supported_vsphere_versions: ["7.0", "8.0"]
+    supported_api_versions: ["7.0", "8.0"]
+
+# === Configuration Metadata ===
+config_metadata:
+  version: "2.0.0"
+  last_updated: "2024-01-15"
+  author: "VMware Provisioning Team"
+  description: "Enhanced call chain tracking and state management configuration"
+  compatibility:
+    ansible_version: "2.12+"
+    aap_version: "4.0+"
+    python_version: "3.8+"
+  dependencies:
+    - call_stack_manager
+    - output_manager
+    - retry_manager
+    - idempotency_checker
+    - aap_state_manager

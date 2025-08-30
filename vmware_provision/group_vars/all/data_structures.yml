@@ -1,0 +1,438 @@
+---
+# Data Structures and Output Format Optimization Configuration
+# This file defines standardized data structures and output formats
+# for consistent data handling across all VMware provisioning operations
+
+# === Global Data Structure Standards ===
+data_structure_standards:
+  # Core Data Types
+  core_data_types:
+    # Session Data Structure
+    session_structure:
+      session_id: "string"  # UUID format
+      session_name: "string"
+      operation_type: "string"
+      start_time: "datetime_iso8601"
+      end_time: "datetime_iso8601"
+      duration: "integer_seconds"
+      status: "enum[pending,running,completed,failed,cancelled]"
+      parent_session_id: "string_optional"
+      child_session_ids: "array_of_strings"
+      metadata: "object"
+      
+    # Operation Result Structure
+    operation_result_structure:
+      operation_id: "string"
+      operation_name: "string"
+      operation_type: "string"
+      status: "enum[success,failure,warning,skipped]"
+      start_time: "datetime_iso8601"
+      end_time: "datetime_iso8601"
+      duration: "integer_milliseconds"
+      result_data: "object"
+      error_details: "object_optional"
+      warnings: "array_of_objects_optional"
+      metadata: "object"
+      
+    # Resource State Structure
+    resource_state_structure:
+      resource_id: "string"
+      resource_type: "string"
+      resource_name: "string"
+      current_state: "object"
+      desired_state: "object"
+      state_diff: "object_optional"
+      last_modified: "datetime_iso8601"
+      version: "integer"
+      checksum: "string"
+      metadata: "object"
+      
+    # Performance Metrics Structure
+    performance_metrics_structure:
+      metric_id: "string"
+      metric_name: "string"
+      metric_type: "enum[counter,gauge,histogram,summary]"
+      value: "number"
+      unit: "string"
+      timestamp: "datetime_iso8601"
+      labels: "object"
+      metadata: "object"
+      
+  # VMware-Specific Data Types
+  vmware_data_types:
+    # VM Configuration Structure
+    vm_configuration_structure:
+      vm_id: "string"
+      vm_name: "string"
+      vm_uuid: "string"
+      power_state: "enum[poweredOn,poweredOff,suspended]"
+      cpu_config:
+        num_cpus: "integer"
+        cores_per_socket: "integer"
+        cpu_hot_add_enabled: "boolean"
+        cpu_hot_remove_enabled: "boolean"
+      memory_config:
+        memory_mb: "integer"
+        memory_hot_add_enabled: "boolean"
+      network_config:
+        network_adapters: "array_of_objects"
+      storage_config:
+        disks: "array_of_objects"
+        controllers: "array_of_objects"
+      guest_os:
+        guest_id: "string"
+        guest_family: "string"
+        tools_status: "string"
+      metadata: "object"
+      
+    # Network Configuration Structure
+    network_configuration_structure:
+      network_id: "string"
+      network_name: "string"
+      network_type: "enum[standard,distributed,nsx]"
+      vlan_id: "integer_optional"
+      subnet: "string_optional"
+      gateway: "string_optional"
+      dns_servers: "array_of_strings_optional"
+      security_policies: "array_of_objects_optional"
+      metadata: "object"
+      
+    # Storage Configuration Structure
+    storage_configuration_structure:
+      storage_id: "string"
+      storage_name: "string"
+      storage_type: "enum[vmfs,nfs,vsan,vvol]"
+      capacity_gb: "number"
+      free_space_gb: "number"
+      provisioned_space_gb: "number"
+      storage_policies: "array_of_objects_optional"
+      performance_metrics: "object_optional"
+      metadata: "object"
+      
+# === Standardized Output Formats ===
+standardized_output_formats:
+  # JSON Output Format
+  json_format:
+    enabled: true
+    pretty_print: true
+    indent_size: 2
+    sort_keys: true
+    ensure_ascii: false
+    separators: [",", ": "]
+    
+  # YAML Output Format
+  yaml_format:
+    enabled: true
+    default_flow_style: false
+    indent: 2
+    width: 120
+    allow_unicode: true
+    line_break: "\n"
+    
+  # XML Output Format
+  xml_format:
+    enabled: true
+    encoding: "UTF-8"
+    pretty_print: true
+    indent: "  "
+    declaration: true
+    
+  # HTML Output Format
+  html_format:
+    enabled: true
+    template_engine: "jinja2"
+    include_css: true
+    include_javascript: true
+    responsive_design: true
+    
+  # CSV Output Format
+  csv_format:
+    enabled: true
+    delimiter: ","
+    quotechar: '"'
+    quoting: "minimal"
+    line_terminator: "\n"
+    
+# === Data Validation Schemas ===
+data_validation_schemas:
+  # Schema Validation Configuration
+  schema_validation:
+    enabled: true
+    strict_mode: false
+    validate_on_input: true
+    validate_on_output: true
+    schema_format: "json_schema"
+    
+  # Common Field Validations
+  field_validations:
+    string_fields:
+      min_length: 1
+      max_length: 1000
+      pattern: "^[a-zA-Z0-9_-]+$"
+      
+    numeric_fields:
+      min_value: 0
+      max_value: 999999999
+      
+    datetime_fields:
+      format: "iso8601"
+      timezone_aware: true
+      
+    uuid_fields:
+      format: "uuid4"
+      case_sensitive: false
+      
+    enum_fields:
+      case_sensitive: true
+      allow_custom_values: false
+      
+# === Data Transformation Rules ===
+data_transformation_rules:
+  # Input Transformation
+  input_transformation:
+    enabled: true
+    normalize_field_names: true
+    convert_data_types: true
+    remove_null_values: false
+    trim_whitespace: true
+    
+  # Output Transformation
+  output_transformation:
+    enabled: true
+    include_metadata: true
+    include_timestamps: true
+    include_version_info: true
+    mask_sensitive_data: true
+    
+  # Field Mapping
+  field_mapping:
+    enabled: true
+    mapping_rules:
+      # Legacy field name mappings
+      "vm_name": "name"
+      "vm_id": "id"
+      "vm_uuid": "uuid"
+      "power_state": "state"
+      
+  # Data Enrichment
+  data_enrichment:
+    enabled: true
+    add_computed_fields: true
+    add_relationship_data: true
+    add_performance_metrics: true
+    add_health_status: true
+    
+# === Performance Optimization ===
+performance_optimization:
+  # Data Compression
+  data_compression:
+    enabled: true
+    compression_algorithm: "gzip"
+    compression_level: 6
+    compress_threshold_bytes: 1024
+    
+  # Data Caching
+  data_caching:
+    enabled: true
+    cache_backend: "memory"  # memory, redis, file
+    cache_ttl_seconds: 300
+    max_cache_size_mb: 100
+    
+  # Batch Processing
+  batch_processing:
+    enabled: true
+    batch_size: 100
+    max_batch_wait_time_ms: 1000
+    parallel_processing: true
+    max_parallel_workers: 4
+    
+  # Streaming
+  streaming:
+    enabled: false
+    stream_threshold_records: 1000
+    chunk_size: 100
+    
+# === Data Quality Assurance ===
+data_quality_assurance:
+  # Data Consistency Checks
+  consistency_checks:
+    enabled: true
+    check_referential_integrity: true
+    check_data_completeness: true
+    check_data_accuracy: true
+    
+  # Data Profiling
+  data_profiling:
+    enabled: true
+    profile_data_types: true
+    profile_value_distributions: true
+    profile_null_percentages: true
+    profile_uniqueness: true
+    
+  # Data Monitoring
+  data_monitoring:
+    enabled: true
+    monitor_data_volume: true
+    monitor_data_quality_metrics: true
+    monitor_processing_performance: true
+    
+# === Integration Standards ===
+integration_standards:
+  # API Integration
+  api_integration:
+    request_format: "json"
+    response_format: "json"
+    error_format: "rfc7807"  # Problem Details for HTTP APIs
+    pagination_format: "cursor_based"
+    
+  # Message Queue Integration
+  message_queue_integration:
+    message_format: "json"
+    message_schema_validation: true
+    message_compression: true
+    message_encryption: false
+    
+  # Database Integration
+  database_integration:
+    connection_pooling: true
+    prepared_statements: true
+    transaction_management: true
+    data_type_mapping: "automatic"
+    
+# === Security and Privacy ===
+security_and_privacy:
+  # Data Encryption
+  data_encryption:
+    encrypt_at_rest: true
+    encrypt_in_transit: true
+    encryption_algorithm: "AES-256-GCM"
+    key_rotation_enabled: true
+    
+  # Data Masking
+  data_masking:
+    enabled: true
+    mask_sensitive_fields: true
+    masking_patterns:
+      password: "***MASKED***"
+      api_key: "***MASKED***"
+      token: "***MASKED***"
+      
+  # Access Control
+  access_control:
+    field_level_access: true
+    role_based_access: true
+    audit_data_access: true
+    
+# === Error Handling ===
+error_handling:
+  # Error Data Structure
+  error_structure:
+    error_id: "string"
+    error_code: "string"
+    error_message: "string"
+    error_type: "enum[validation,processing,system,network]"
+    timestamp: "datetime_iso8601"
+    context: "object"
+    stack_trace: "string_optional"
+    
+  # Error Processing
+  error_processing:
+    log_errors: true
+    include_stack_traces: false
+    sanitize_error_messages: true
+    aggregate_similar_errors: true
+    
+# === Monitoring and Metrics ===
+monitoring_and_metrics:
+  # Data Metrics
+  data_metrics:
+    track_data_volume: true
+    track_processing_time: true
+    track_error_rates: true
+    track_data_quality_scores: true
+    
+  # Performance Metrics
+  performance_metrics:
+    track_throughput: true
+    track_latency: true
+    track_resource_usage: true
+    track_cache_hit_rates: true
+    
+  # Business Metrics
+  business_metrics:
+    track_operation_success_rates: true
+    track_user_satisfaction: false
+    track_cost_metrics: false
+    
+# === Configuration Management ===
+configuration_management:
+  # Version Control
+  version_control:
+    track_schema_versions: true
+    backward_compatibility: true
+    migration_support: true
+    
+  # Environment Configuration
+  environment_config:
+    development:
+      validation:
+        strict_mode: false
+      performance:
+        caching_enabled: false
+      security:
+        encryption_enabled: false
+        
+    staging:
+      validation:
+        strict_mode: true
+      performance:
+        caching_enabled: true
+      security:
+        encryption_enabled: true
+        
+    production:
+      validation:
+        strict_mode: true
+      performance:
+        caching_enabled: true
+        compression_enabled: true
+      security:
+        encryption_enabled: true
+        audit_enabled: true
+        
+# === Documentation and Metadata ===
+documentation_metadata:
+  # Schema Documentation
+  schema_documentation:
+    auto_generate_docs: true
+    include_examples: true
+    include_validation_rules: true
+    output_format: "markdown"
+    
+  # Data Lineage
+  data_lineage:
+    track_data_sources: true
+    track_transformations: true
+    track_data_consumers: true
+    
+  # Change Management
+  change_management:
+    track_schema_changes: true
+    require_change_approval: false
+    notify_stakeholders: true
+    
+# === Configuration Metadata ===
+config_metadata:
+  version: "2.0.0"
+  last_updated: "2024-01-15"
+  author: "VMware Provisioning Team"
+  description: "Standardized data structures and output format optimization"
+  compatibility:
+    ansible_version: "2.12+"
+    python_version: "3.8+"
+    json_schema_version: "draft-07"
+  dependencies:
+    - jsonschema
+    - pyyaml
+    - jinja2
+    - lxml

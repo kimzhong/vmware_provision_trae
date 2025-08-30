@@ -1,0 +1,496 @@
+---
+# VMware Network Configuration Playbook
+# This playbook handles comprehensive network configuration for VMware environments
+
+- name: "VMware Network Configuration with Enhanced Architecture"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # Playbook Configuration
+    playbook_name: "network_configuration"
+    playbook_version: "2.0.0"
+    operation_type: "network_configuration"
+    
+    # Core Components Integration
+    enable_call_stack_tracking: true
+    enable_retry_management: true
+    enable_output_management: true
+    enable_idempotency_checking: true
+    enable_aap_integration: true
+    
+    # Network Configuration Settings
+    network_config:
+      validate_existing_config: true
+      enable_network_isolation: true
+      configure_distributed_switches: true
+      configure_port_groups: true
+      configure_vlans: true
+      enable_security_policies: true
+      
+    # Performance and Reliability
+    performance_config:
+      parallel_operations: true
+      max_concurrent_operations: 10
+      operation_timeout: 900
+      enable_caching: true
+      
+    # Integration Settings
+    integration_config:
+      aap_integration: true
+      external_monitoring: true
+      audit_logging: true
+      
+  pre_tasks:
+    - name: "Display Playbook Information"
+      debug:
+        msg:
+          - "=== VMware Network Configuration Playbook ==="
+          - "Version: {{ playbook_version }}"
+          - "Operation: {{ operation_type }}"
+          - "Timestamp: {{ ansible_date_time.iso8601 }}"
+          - "Target Environment: {{ target_environment | default('development') }}"
+          - "Network Configurations: {{ network_definitions | length if network_definitions is defined else 'Not specified' }}"
+      tags: ["always", "info"]
+    
+    - name: "Validate Required Variables"
+      assert:
+        that:
+          - network_definitions is defined
+          - network_definitions | length > 0
+          - vcenter_hostname is defined
+          - vcenter_username is defined
+          - vcenter_password is defined
+        fail_msg: "Required variables for network configuration are missing"
+        success_msg: "All required variables are present"
+      tags: ["always", "validation"]
+
+  tasks:
+    # === Core Component Initialization ===
+    - name: "Initialize Call Stack Manager"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_name: "{{ playbook_name }}"
+          operation_type: "{{ operation_type }}"
+          session_config:
+            auto_create_session: true
+            session_name: "network_config_{{ ansible_date_time.epoch }}"
+            track_performance: true
+            enable_debugging: "{{ debug_mode | default(false) }}"
+          integration:
+            enable_aap_integration: "{{ enable_aap_integration }}"
+            enable_external_monitoring: "{{ integration_config.external_monitoring }}"
+      tags: ["always", "initialization", "call_stack"]
+    
+    - name: "Initialize Output Manager"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          output_config:
+            formats: ["json", "yaml", "html"]
+            include_performance_data: true
+            include_debug_info: "{{ debug_mode | default(false) }}"
+            enable_real_time_updates: true
+            network_specific_outputs: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            enable_aap_artifacts: "{{ enable_aap_integration }}"
+      tags: ["always", "initialization", "output"]
+    
+    # === Environment Validation ===
+    - name: "Network Environment Validation"
+      include_role:
+        name: environment_validation
+      vars:
+        environment_validation:
+          validate_vcenter_connectivity: true
+          validate_network_permissions: true
+          validate_distributed_switch_access: true
+          validate_vlan_availability: true
+          validation_config:
+            fail_on_warnings: false
+            detailed_reporting: true
+            network_specific_checks: true
+      when: network_config.validate_existing_config | default(true)
+      tags: ["validation", "environment", "network"]
+    
+    # === Pre-Configuration Idempotency Check ===
+    - name: "Pre-Configuration Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["network_configuration", "distributed_switch_state", "port_group_configuration", "vlan_configuration"]
+            check_phases: ["pre_execution"]
+            detailed_analysis: true
+            conflict_detection: true
+            network_specific_checks: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "pre_check", "network"]
+    
+    # === Current Network State Analysis ===
+    - name: "Analyze Current Network State"
+      include_role:
+        name: vmware_state_check
+      vars:
+        vmware_state_check:
+          check_type: "network"
+          network_definitions: "{{ network_definitions }}"
+          check_config:
+            analyze_distributed_switches: true
+            analyze_port_groups: true
+            analyze_vlan_configuration: true
+            analyze_security_policies: true
+            detailed_state_analysis: true
+      tags: ["validation", "state_check", "network"]
+    
+    # === Distributed Switch Configuration ===
+    - name: "Configure Distributed Switches with Retry Logic"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "distributed_switch_configuration"
+            operation_type: "network_infrastructure"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 15
+            max_delay: 120
+            backoff_strategy: "exponential"
+            retry_on_failures: ["network_error", "resource_busy", "configuration_conflict"]
+          target_operation:
+            role_name: "vmware_network_config"
+            role_vars:
+              operation_mode: "distributed_switch"
+              network_definitions: "{{ network_definitions }}"
+              vcenter_config:
+                hostname: "{{ vcenter_hostname }}"
+                username: "{{ vcenter_username }}"
+                password: "{{ vcenter_password }}"
+                datacenter: "{{ vcenter_datacenter | default('') }}"
+              switch_config:
+                enable_distributed_switches: "{{ network_config.configure_distributed_switches }}"
+                parallel_configuration: "{{ performance_config.parallel_operations }}"
+                max_concurrent: "{{ performance_config.max_concurrent_operations }}"
+                timeout: "{{ performance_config.operation_timeout }}"
+                enable_validation: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: network_config.configure_distributed_switches | default(true)
+      tags: ["configuration", "distributed_switch", "retry", "network"]
+    
+    # === Port Group Configuration ===
+    - name: "Configure Port Groups with Retry Logic"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "port_group_configuration"
+            operation_type: "network_configuration"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 10
+            max_delay: 90
+            backoff_strategy: "exponential"
+            retry_on_failures: ["network_error", "resource_busy", "vlan_conflict"]
+          target_operation:
+            role_name: "vmware_network_config"
+            role_vars:
+              operation_mode: "port_group"
+              network_definitions: "{{ network_definitions }}"
+              vcenter_config:
+                hostname: "{{ vcenter_hostname }}"
+                username: "{{ vcenter_username }}"
+                password: "{{ vcenter_password }}"
+                datacenter: "{{ vcenter_datacenter | default('') }}"
+              port_group_config:
+                enable_port_groups: "{{ network_config.configure_port_groups }}"
+                enable_vlans: "{{ network_config.configure_vlans }}"
+                enable_security_policies: "{{ network_config.enable_security_policies }}"
+                parallel_configuration: "{{ performance_config.parallel_operations }}"
+                max_concurrent: "{{ performance_config.max_concurrent_operations }}"
+                timeout: "{{ performance_config.operation_timeout }}"
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: network_config.configure_port_groups | default(true)
+      tags: ["configuration", "port_group", "retry", "network"]
+    
+    # === VLAN Configuration ===
+    - name: "Configure VLANs with Retry Logic"
+      include_role:
+        name: retry_manager
+      vars:
+        retry_manager:
+          enabled: "{{ enable_retry_management }}"
+          operation_config:
+            operation_name: "vlan_configuration"
+            operation_type: "network_configuration"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          retry_config:
+            max_attempts: 3
+            base_delay: 5
+            max_delay: 60
+            backoff_strategy: "exponential"
+            retry_on_failures: ["network_error", "vlan_conflict", "resource_busy"]
+          target_operation:
+            role_name: "vmware_network_config"
+            role_vars:
+              operation_mode: "vlan"
+              network_definitions: "{{ network_definitions }}"
+              vcenter_config:
+                hostname: "{{ vcenter_hostname }}"
+                username: "{{ vcenter_username }}"
+                password: "{{ vcenter_password }}"
+                datacenter: "{{ vcenter_datacenter | default('') }}"
+              vlan_config:
+                enable_vlans: "{{ network_config.configure_vlans }}"
+                validate_vlan_ranges: true
+                enable_vlan_isolation: "{{ network_config.enable_network_isolation }}"
+                parallel_configuration: "{{ performance_config.parallel_operations }}"
+                timeout: "{{ performance_config.operation_timeout }}"
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: network_config.configure_vlans | default(true)
+      tags: ["configuration", "vlan", "retry", "network"]
+    
+    # === Network Isolation Configuration ===
+    - name: "Configure Network Isolation"
+      include_role:
+        name: vmware_network_isolation
+      vars:
+        vmware_network_isolation:
+          network_definitions: "{{ network_definitions }}"
+          isolation_config:
+            enable_micro_segmentation: true
+            enable_traffic_filtering: true
+            enable_security_groups: true
+            isolation_policies: "{{ network_isolation_policies | default([]) }}"
+          vcenter_config:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+            datacenter: "{{ vcenter_datacenter | default('') }}"
+      when: network_config.enable_network_isolation | default(true)
+      tags: ["configuration", "isolation", "security", "network"]
+    
+    # === Post-Configuration Validation ===
+    - name: "Post-Configuration Idempotency Check"
+      include_role:
+        name: idempotency_checker
+      vars:
+        idempotency_checker:
+          enabled: "{{ enable_idempotency_checking }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          check_config:
+            check_types: ["network_configuration", "distributed_switch_state", "port_group_configuration", "vlan_configuration", "security_policies"]
+            check_phases: ["post_execution"]
+            detailed_analysis: true
+            generate_compliance_report: true
+            network_specific_checks: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+      tags: ["validation", "idempotency", "post_check", "network"]
+    
+    # === Network Configuration Verification ===
+    - name: "Verify Network Configuration"
+      include_role:
+        name: vmware_state_check
+      vars:
+        vmware_state_check:
+          check_type: "network_verification"
+          network_definitions: "{{ network_definitions }}"
+          verification_config:
+            verify_distributed_switches: true
+            verify_port_groups: true
+            verify_vlan_configuration: true
+            verify_security_policies: true
+            verify_connectivity: true
+            detailed_verification: true
+      tags: ["verification", "network", "connectivity"]
+    
+    # === Status Tracking ===
+    - name: "Update Network Configuration Status"
+      include_role:
+        name: status_tracking
+      vars:
+        status_tracking:
+          operation_name: "{{ playbook_name }}"
+          operation_status: "completed"
+          network_status_list: "{{ configured_networks | default([]) }}"
+          tracking_config:
+            detailed_status: true
+            include_performance_metrics: true
+            include_network_topology: true
+            enable_external_updates: "{{ integration_config.external_monitoring }}"
+      tags: ["status", "tracking", "network"]
+    
+    # === AAP State Management ===
+    - name: "AAP State Synchronization"
+      include_role:
+        name: aap_state_manager
+      vars:
+        aap_state_manager:
+          enabled: "{{ enable_aap_integration }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+          state_synchronization:
+            enabled: true
+            mode: "bidirectional"
+            sync_job_status: true
+            sync_execution_environment: true
+            sync_network_configuration: true
+          aap_integration:
+            register_artifacts: true
+            update_job_status: true
+            track_performance: true
+            include_network_topology: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      when: enable_aap_integration | default(false)
+      tags: ["aap", "state_sync", "integration", "network"]
+
+  post_tasks:
+    # === Final Output Generation ===
+    - name: "Generate Network Configuration Report"
+      include_role:
+        name: output_manager
+      vars:
+        output_manager:
+          enabled: "{{ enable_output_management }}"
+          operation_context:
+            operation_name: "{{ playbook_name }}"
+            operation_type: "{{ operation_type }}"
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          output_config:
+            generate_final_report: true
+            include_all_sessions: true
+            formats: ["json", "yaml", "html"]
+            include_performance_summary: true
+            include_error_analysis: true
+            include_network_topology: true
+            include_security_analysis: true
+          integration:
+            call_stack_session_id: "{{ call_stack_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+            retry_session_id: "{{ retry_manager_session_id | default('') }}"
+            idempotency_session_id: "{{ idempotency_checker_session_id | default('') }}"
+      tags: ["always", "output", "final_report", "network"]
+    
+    # === Session Cleanup ===
+    - name: "Finalize Call Stack Session"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          enabled: "{{ enable_call_stack_tracking }}"
+          operation_context:
+            session_id: "{{ call_stack_session_id | default('') }}"
+            operation_status: "completed"
+          session_config:
+            finalize_session: true
+            generate_session_summary: true
+            cleanup_temporary_data: true
+            archive_session_data: true
+          integration:
+            output_session_id: "{{ output_manager_session_id | default('') }}"
+            aap_state_session_id: "{{ aap_state_manager_session_id | default('') }}"
+      tags: ["always", "cleanup", "finalization"]
+    
+    - name: "Display Network Configuration Summary"
+      debug:
+        msg:
+          - "=== Network Configuration Completed ==="
+          - "Playbook: {{ playbook_name }} v{{ playbook_version }}"
+          - "Operation Type: {{ operation_type }}"
+          - "Session ID: {{ call_stack_session_id | default('N/A') }}"
+          - "Networks Requested: {{ network_definitions | length if network_definitions is defined else 0 }}"
+          - "Networks Configured: {{ configured_networks | length if configured_networks is defined else 0 }}"
+          - "Distributed Switches: {{ configured_switches | length if configured_switches is defined else 0 }}"
+          - "Port Groups: {{ configured_port_groups | length if configured_port_groups is defined else 0 }}"
+          - "VLANs: {{ configured_vlans | length if configured_vlans is defined else 0 }}"
+          - "Duration: {{ ansible_date_time.iso8601 }}"
+          - "Status: {{ 'SUCCESS' if ansible_failed_result is not defined else 'FAILED' }}"
+      tags: ["always", "summary"]
+
+  handlers:
+    - name: "Emergency Network Cleanup"
+      include_role:
+        name: call_stack_manager
+      vars:
+        call_stack_manager:
+          emergency_cleanup: true
+          session_id: "{{ call_stack_session_id | default('') }}"
+          cleanup_config:
+            cleanup_network_resources: true
+      listen: "emergency_cleanup"
+    
+    - name: "Rollback Network Configuration"
+      include_role:
+        name: vmware_network_config
+      vars:
+        vmware_network_config:
+          operation_mode: "rollback"
+          rollback_config:
+            target_networks: "{{ failed_networks | default([]) }}"
+            cleanup_resources: true
+            restore_previous_state: true
+            rollback_distributed_switches: true
+            rollback_port_groups: true
+            rollback_vlans: true
+      listen: "rollback_network_configuration"
+      when: network_config.enable_rollback | default(true)
+    
+    - name: "Network Security Alert"
+      debug:
+        msg:
+          - "SECURITY ALERT: Network configuration security issue detected"
+          - "Session ID: {{ call_stack_session_id | default('N/A') }}"
+          - "Timestamp: {{ ansible_date_time.iso8601 }}"
+          - "Review network security policies and configurations"
+      listen: "network_security_alert"
+
+# === Playbook Metadata ===
+# Version: 2.0.0
+# Description: Enhanced VMware network configuration with version2 core components
+# Dependencies: call_stack_manager, output_manager, retry_manager, idempotency_checker, aap_state_manager
+# Network Focus: Distributed switches, port groups, VLANs, network isolation, security policies
+# Compatibility: Ansible 2.12+, AAP 4.0+, vSphere 7.0+
+# Last Updated: 2024-01-15
