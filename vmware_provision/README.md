@@ -1,8 +1,28 @@
-# VMware VM Provisioning Playbook - Version 2
+# VMware VM Provisioning Playbook - Version 3
 
-This Ansible playbook collection automates the provisioning of VMware virtual machines using Ansible Automation Platform (AAP) 2.4 with enhanced architecture and advanced capabilities.
+This Ansible playbook collection automates the provisioning of VMware virtual machines using Ansible Automation Platform (AAP) 2.4 with enhanced architecture, advanced capabilities, and multi-OS support.
 
-## 🚀 Version 2 Features
+## 🚀 Version 3 Features
+
+### Advanced Multi-OS Support
+- **Windows Server Support**: Windows Server 2019, Windows Server 2022
+- **Linux Distribution Support**: SUSE Linux Enterprise 15, Red Hat Enterprise Linux 8/9
+- **OS-specific Customization**: Tailored configurations per operating system
+- **Template Management**: Advanced OS template selection and customization
+
+### Domain Integration & Management
+- **Multi-Domain Support**: Support for multiple Active Directory domains
+- **Domain-specific Configurations**: Customized settings per domain environment
+- **Active Directory Integration**: Seamless AD integration and management
+- **Automated Domain Joining**: Streamlined domain join processes
+
+### Enhanced Network Management
+- **Multi-NIC Support**: Advanced multiple network interface configuration
+- **OS-specific Network Customization**: Network settings tailored per OS type
+- **IP Allocation Management**: Intelligent IP address allocation (DHCP/Static)
+- **Advanced VLAN Management**: Enhanced network segmentation capabilities
+
+## 🔄 Version 2 Features (Inherited)
 
 ### Core Architecture
 - **Enhanced Core Components**: 5 specialized roles for robust automation
@@ -72,9 +92,25 @@ vmware_provision/
 
 ## Usage
 
-### Version 2 Quick Start
+### Version 3 Quick Start
 
-#### Decoupled Playbook Execution
+#### Multi-OS Deployment Examples
+
+```bash
+# Windows Server 2022 with domain integration
+ansible-playbook vm_provision.yml -e "env=prod location=dc1 domain=prod.example.com vm_os=windows2022 domain_integration=true os_customization=win2022-prod"
+
+# RHEL 8 deployment with multi-NIC
+ansible-playbook vm_provision.yml -e "env=dev location=dc1 domain=example.com vm_os=rhel8 multi_nic=true ip_allocation=static"
+
+# SUSE Linux with advanced network configuration
+ansible-playbook vm_provision.yml -e "env=sit location=dc2 domain=sit.example.com vm_os=suse15 network_isolation=true strict_security=true"
+
+# Comprehensive multi-OS example
+ansible-playbook examples/comprehensive_example.yml -e "env=prod vm_os=windows2019 domain_integration=true"
+```
+
+#### Version 2 Decoupled Playbook Execution
 
 ```bash
 # Complete VM provisioning
@@ -94,15 +130,34 @@ ansible-playbook examples/comprehensive_example.yml -e "env=dev"
 
 1. Create a project pointing to this repository
 2. Create credentials for vCenter access
-3. Create Job Templates for Version 2:
-   - **VM Provisioning** (vm_provision.yml)
+3. Create Job Templates for Version 3:
+   - **Multi-OS VM Provisioning** (vm_provision.yml) - Supports Windows/Linux deployment
+   - **Domain Integration Deployment** (vm_provision.yml) - With AD integration
+   - **Multi-NIC Network Configuration** (network_configuration.yml) - Advanced networking
+   - **OS-specific Storage Configuration** (storage_configuration.yml) - Per-OS optimization
+   - **Comprehensive Multi-OS Deployment** (examples/comprehensive_example.yml)
+4. Additional Version 2 Templates:
    - **Network Configuration** (network_configuration.yml)
    - **Storage Configuration** (storage_configuration.yml)
-   - **Comprehensive Deployment** (examples/comprehensive_example.yml)
+   - **Basic VM Provisioning** (vm_provision.yml)
 
 ### Creating Enhanced Workflow Templates
 
-#### Standard Workflow
+#### Version 3 Multi-OS Workflow
+1. OS Template Selection and Validation
+2. Domain Integration Setup
+3. Call Stack Manager Initialization
+4. Environment and OS-specific Validation
+5. Multi-NIC Network Planning
+6. VM Provisioning with OS Customization
+7. Domain Join Operations (Windows)
+8. OS-specific Security Configuration
+9. Multi-Network Interface Setup
+10. Storage Optimization per OS
+11. Compliance and Security Validation
+12. State Management and Reporting
+
+#### Standard Workflow (Version 2)
 1. Environment Validation
 2. Call Stack Initialization
 3. VM State Check
@@ -135,6 +190,15 @@ ansible-playbook examples/comprehensive_example.yml -e "env=dev"
 - `vm_name`: Name of the VM
 - `vm_purpose`: Purpose of the VM
 - `sequence_number`: Sequence number for the VM
+
+#### Version 3 Enhanced Variables
+- `domain_integration`: Enable domain integration (default: false)
+- `os_customization`: OS customization template (e.g., win2022-prod, rhel8-dev)
+- `multi_nic`: Enable multiple NIC support (default: false)
+- `ip_allocation`: IP allocation method (dhcp/static)
+- `os_template_override`: Override default OS template selection
+- `domain_ou`: Organizational Unit for domain join (Windows)
+- `security_baseline`: Security baseline template (e.g., cis-rhel8-level1)
 
 #### Version 2 Enhanced Variables
 - `enable_call_tracking`: Enable call chain tracking (default: true)
@@ -272,7 +336,47 @@ ansible-playbook vm_provision.yml -e "output_format=html"
 
 ## 🔧 Configuration Examples
 
-### Basic Configuration
+### Version 3 Multi-OS Configuration
+```yaml
+# group_vars/all/main.yml - Version 3 Settings
+# Multi-OS Support
+os_templates:
+  windows2022:
+    template: "win2022-prod-template"
+    customization: "win2022-prod-sysprep"
+    domain_join: true
+    domain_ou: "OU=Servers,DC=prod,DC=example,DC=com"
+  rhel8:
+    template: "rhel8-prod-template"
+    customization: "rhel8-prod-cloud-init"
+    domain_join: false
+    security_baseline: "cis-rhel8-level1"
+  suse15:
+    template: "suse15-enterprise-template"
+    customization: "suse15-enterprise-config"
+    domain_join: false
+    security_baseline: "suse-security-guide"
+
+# Domain Integration
+domains:
+  prod.example.com:
+    dns: ["10.0.0.2", "10.0.0.3"]
+    domain_controllers: ["dc1.prod.example.com", "dc2.prod.example.com"]
+  dev.example.com:
+    dns: ["10.1.0.2", "10.1.0.3"]
+    domain_controllers: ["dc1.dev.example.com"]
+
+# Multi-NIC Configuration
+network_interfaces:
+  management:
+    type: "vmxnet3"
+    network: "MGMT-VLAN-100"
+  application:
+    type: "vmxnet3"
+    network: "APP-VLAN-200"
+```
+
+### Basic Configuration (Version 2)
 ```yaml
 # group_vars/all/main.yml
 enable_call_tracking: true
@@ -282,7 +386,7 @@ idempotency_level: strict
 aap_sync_enabled: true
 ```
 
-### Advanced Configuration
+### Advanced Configuration (Version 2)
 ```yaml
 # group_vars/all/call_chain_tracking.yml
 call_stack_config:
@@ -346,7 +450,16 @@ We welcome contributions to enhance the VMware provisioning capabilities:
 
 ## 📋 Version History
 
+- **Version 3.0**: Advanced multi-OS support with domain integration
+  - Multi-OS support (Windows Server 2019/2022, SUSE Linux 15, RHEL 8/9)
+  - Domain integration and Active Directory support
+  - Enhanced network management with multi-NIC support
+  - OS-specific customization and security baselines
+  - Advanced IP allocation management
 - **Version 2.0**: Enhanced architecture with core components
+  - Core component architecture (call_stack_manager, output_manager, etc.)
+  - Decoupled playbooks and advanced data optimization
+  - Enterprise-grade state management and monitoring
 - **Version 1.x**: Basic VMware provisioning capabilities
 
 ## 📞 Support
